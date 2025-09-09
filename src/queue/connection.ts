@@ -17,19 +17,12 @@ const redisPassword =
     ? env.REDIS_DEV_PASSWORD
     : env.REDIS_PASSWORD;
 
-    console.log({
-      env: env.NODE_ENV,
-      redisHost,
-      redisPort,
-      redisPassword
-    })
-
 export const redisConnection: RedisOptions = {
   host: redisHost,
   port: redisPort,
   password: redisPassword,
   username: "default",
-  tls: {},
+  tls: env.NODE_ENV === "development" ? {} : undefined,
 };
 
 export const redis = new Redis(redisConnection);

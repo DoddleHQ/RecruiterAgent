@@ -11,11 +11,6 @@ function getVectorStore(): UpstashVector | PgVector {
       env.VECTOR_UPSTASH_URL &&
       env.VECTOR_UPSTASH_TOKEN
     ) {
-        console.log({
-      enviroment,
-      VECTOR_UPSTASH_URL: env.VECTOR_UPSTASH_URL,
-      VECTOR_UPSTASH_TOKEN: env.VECTOR_UPSTASH_TOKEN
-    })
       return new UpstashVector({
         url: env.VECTOR_UPSTASH_URL!,
         token: env.VECTOR_UPSTASH_TOKEN!,
@@ -24,11 +19,6 @@ function getVectorStore(): UpstashVector | PgVector {
       enviroment === "production" &&
       env.POSTGRES_VECTOR_CONNECTION_STRING
   ) {
-            console.log({
-      enviroment,
-      POSTGRES_VECTOR_CONNECTION_STRING: env.POSTGRES_VECTOR_CONNECTION_STRING
-      
-    })
     return new PgVector({
       connectionString: env.POSTGRES_VECTOR_CONNECTION_STRING,
     });

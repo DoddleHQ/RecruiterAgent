@@ -11,8 +11,7 @@ export function fastParseEmail(subject: string, body: string): FastParseResult {
   const text = (subject + " " + body)
     .replace(/\r\n|\r|\n/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+    .trim();
 
   let jobTitle: string | null = null;
 

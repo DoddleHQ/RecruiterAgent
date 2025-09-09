@@ -364,7 +364,7 @@ const extractEmailMetaData = createStep({
       }
 
       const fastResult = fastParseEmail(subject ?? "", decodedBody);
-
+      
       return {
         ...emailMetaData,
         hasResume,

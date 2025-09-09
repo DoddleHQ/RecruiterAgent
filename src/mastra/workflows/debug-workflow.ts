@@ -252,7 +252,7 @@ const sendTestReplyEmails = createStep({
           emailId: emailInfo.emailId,
           inReplyTo: emailInfo.messageId,
           references: [emailInfo.messageId], // Array of message IDs for threading
-          templateId: "templates-request_key_details-creative", // Using a default template
+          templateId: "templates-rejection-no_cover_letter", // Using a default template
         };
 
         console.log(`   📋 Reply parameters:`, {
