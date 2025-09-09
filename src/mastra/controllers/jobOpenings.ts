@@ -8,8 +8,8 @@ import { MDocument } from "@mastra/rag";
 import crypto from "crypto";
 import { vectorStore } from "../../vectorDB/connection";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const jobOpeningsDir = path.resolve(__dirname, "../../src/mastra/job-openings");
+const dirname = path.dirname(fileURLToPath(import.meta.url));
+const jobOpeningsDir = path.resolve(dirname, "../../src/mastra/job-openings");
 
 const JobOpeningSchema = z
   .object({
@@ -150,7 +150,7 @@ export const deleteJobOpening = async (req: Request, res: Response) => {
     try {
       const jobOpeningPath = path.join(jobOpeningsDir, `${jobId}.json`);
 
-      const ragAgent = mastra.getAgent("ragAgent");
+      const ragAgent = mastra.getAgent("contextQAAgent");
 
       if (!ragAgent) throw Error("RAG agent not found");
 
