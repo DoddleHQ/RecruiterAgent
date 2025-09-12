@@ -67,7 +67,7 @@ const AgentTrigger = createStep({
 
     const searchInboxInput = {
       userId: "me",
-      q: `label:inbox -label:pre-stage`,
+      q: `label:inbox label:unread -label:pre-stage`,
       maxResults: 50,
     };
 
