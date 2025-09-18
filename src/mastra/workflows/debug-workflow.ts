@@ -4,6 +4,8 @@ import {
   gmailSearchEmails,
   getEmailContent,
   sendThreadReplyEmail,
+  customizeTemplate,
+  sendCustomizeThreadReplyEmail,
 } from "../../utils/gmail";
 import { getGmailClient } from "../../OAuth/getGmailClient";
 
@@ -35,12 +37,7 @@ const searchTestEmails = createStep({
     )
     .describe("Array of found test emails with basic information"),
   execute: async ({ inputData }) => {
-    if (!inputData) {
-      console.log("Debug workflow not triggered - input is false");
-      return [];
-    }
-
-    console.log("🔍 Searching for test emails with specific subject...");
+    if (!inputData) return [];
 
     try {
       // Search for emails with the specific subject
@@ -49,10 +46,6 @@ const searchTestEmails = createStep({
         q: 'subject:"Test: testing template formatting and naming issues!" -subject:"Re: Test: testing template formatting and naming issues!"',
         maxResults: 1,
       });
-
-      console.log(
-        `📧 Found ${searchResult.length} emails matching the search criteria`
-      );
 
       const emailsInfo = [];
 
@@ -117,23 +110,15 @@ const searchTestEmails = createStep({
           };
 
           emailsInfo.push(emailInfo);
-
-          console.log(`✅ Processed email: ${email.id}`);
-          console.log(`   Subject: ${subject}`);
-          console.log(`   From: ${from}`);
-          console.log(`   Sender Name: ${senderName}`);
-          console.log(`   Sender Email: ${senderEmail}`);
-          console.log(`   Date: ${date}`);
         } catch (error) {
-          console.error(`❌ Error processing email ${email.id}:`, error);
+          console.error(`Error processing email ${email.id}:`, error);
           continue;
         }
       }
 
-      console.log(`📊 Successfully processed ${emailsInfo.length} emails`);
       return emailsInfo;
     } catch (error) {
-      console.error("❌ Error searching for emails:", error);
+      console.error("Error searching for emails:", error);
       return [];
     }
   },
@@ -163,170 +148,92 @@ const sendTestReplyEmails = createStep({
       })
     )
     .describe("Array of found test emails with basic information"),
-  outputSchema: z
-    .object({
-      totalEmails: z.number().describe("Total number of emails processed"),
-      successfulReplies: z
-        .number()
-        .describe("Number of successful replies sent"),
-      failedReplies: z.number().describe("Number of failed replies"),
-      replyResults: z
-        .array(
-          z.object({
-            emailId: z.string().describe("Original email ID"),
-            threadId: z.string().nullable().describe("Thread ID"),
-            success: z
-              .boolean()
-              .describe("Whether reply was sent successfully"),
-            replyMessageId: z
-              .string()
-              .nullable()
-              .describe("ID of the sent reply message"),
-            error: z.string().nullable().describe("Error message if failed"),
-            senderName: z
-              .string()
-              .nullable()
-              .describe("Name of original sender"),
-            senderEmail: z
-              .string()
-              .nullable()
-              .describe("Email of original sender"),
-          })
-        )
-        .describe("Results of reply attempts"),
-    })
-    .describe("Results of sending thread reply emails"),
+  outputSchema: z.string().describe("Results of sending thread reply emails"),
   execute: async ({ inputData }) => {
     if (!inputData || inputData.length === 0) {
-      console.log("⚠️ No emails to reply to");
-      return {
-        totalEmails: 0,
-        successfulReplies: 0,
-        failedReplies: 0,
-        replyResults: [],
-      };
+      return "";
     }
 
-    console.log(
-      `📤 Sending reply emails to ${inputData.length} test emails...`
-    );
-
-    const replyResults = [];
-    let successfulReplies = 0;
-    let failedReplies = 0;
-
     for (const emailInfo of inputData) {
+      if (
+        !emailInfo.threadId ||
+        !emailInfo.messageId ||
+        !emailInfo.senderEmail
+      ) {
+        continue;
+      }
+
+      const mobileDevQues = [
+  {
+    question: "Can you describe your experience with React Native and how you've used it in previous projects?",
+    type: 'text-based'
+  },
+  {
+    question: 'How do you optimize the performance of a React Native application?',
+    type: 'text-based'
+  },
+  {
+    question: 'Write a JavaScript function to implement a simple Redux store with a single reducer.',
+    type: 'example-based',
+    example: 'function reducer(state = {}, action) { switch (action.type) { ... } }'
+  },
+  {
+    question: 'What is the difference between JavaScript and TypeScript?',
+    type: 'multiple-choice',
+    options: [
+      'JavaScript is a dynamically-typed language, while TypeScript is statically-typed',
+      'JavaScript is a statically-typed language, while TypeScript is dynamically-typed',
+      'JavaScript and TypeScript are both dynamically-typed languages'
+    ]
+  },
+  {
+    question: "Can you explain the concept of a 'mobile-first' design approach and how you've implemented it in previous projects?",
+    type: 'text-based'
+  },
+  {
+    question: 'How do you handle errors and exceptions in a React Native application?',
+    type: 'text-based'
+  },
+  {
+    question: 'What is the purpose of using Git and GitHub in software development?',
+    type: 'riddle-based'
+  },
+  {
+    question: 'Can you describe a situation where you had to integrate a third-party library or service into a React Native application?',
+    type: 'text-based'
+  }
+]
+         
+
+      const customizedTemplate = customizeTemplate({
+          templateId: "templates-pre-questionnaire-details",
+          customItems: mobileDevQues,
+        })
+
+
+      if(!customizedTemplate) {
+       console.log("Failed to customize template")
+        continue;
+      }
+
       try {
-        console.log(`📧 Sending reply to email: ${emailInfo.emailId}`);
-
-        // Validate required fields
-        if (
-          !emailInfo.threadId ||
-          !emailInfo.messageId ||
-          !emailInfo.senderEmail
-        ) {
-          console.warn(
-            `⚠️ Missing required fields for email ${emailInfo.emailId}`
-          );
-          replyResults.push({
-            emailId: emailInfo.emailId,
-            threadId: emailInfo.threadId,
-            success: false,
-            replyMessageId: null,
-            error:
-              "Missing required fields (threadId, messageId, or senderEmail)",
-            senderName: emailInfo.senderName,
-            senderEmail: emailInfo.senderEmail,
-          });
-          failedReplies++;
-          continue;
-        }
-
-        // Prepare parameters for sendThreadReplyEmail
-        const replyParams = {
+        await sendCustomizeThreadReplyEmail({
           name: emailInfo.senderName || "User",
-          position: "Test Position", // Default position for debug
+          position: "Mobile App Developer",
           userEmail: emailInfo.senderEmail,
           subject: emailInfo.subject,
           threadId: emailInfo.threadId,
           emailId: emailInfo.emailId,
           inReplyTo: emailInfo.messageId,
-          references: [emailInfo.messageId], // Array of message IDs for threading
-          templateId: "templates-rejection-no_cover_letter", // Using a default template
-        };
-
-        console.log(`   📋 Reply parameters:`, {
-          name: replyParams.name,
-          userEmail: replyParams.userEmail,
-          subject: replyParams.subject,
-          threadId: replyParams.threadId,
-          templateId: replyParams.templateId,
+          references: [emailInfo.messageId],
+          templateMailBody: customizedTemplate,
         });
-
-        // Send the reply email
-        const replyResponse = await sendThreadReplyEmail(replyParams);
-
-        if (replyResponse && replyResponse.id) {
-          console.log(`   ✅ Reply sent successfully: ${replyResponse.id}`);
-          replyResults.push({
-            emailId: emailInfo.emailId,
-            threadId: emailInfo.threadId,
-            success: true,
-            replyMessageId: replyResponse.id,
-            error: null,
-            senderName: emailInfo.senderName,
-            senderEmail: emailInfo.senderEmail,
-          });
-          successfulReplies++;
-        } else {
-          console.warn(
-            `   ⚠️ Reply response missing ID for email ${emailInfo.emailId}`
-          );
-          replyResults.push({
-            emailId: emailInfo.emailId,
-            threadId: emailInfo.threadId,
-            success: false,
-            replyMessageId: null,
-            error: "Reply response missing ID",
-            senderName: emailInfo.senderName,
-            senderEmail: emailInfo.senderEmail,
-          });
-          failedReplies++;
-        }
       } catch (error) {
-        console.error(
-          `❌ Error sending reply to email ${emailInfo.emailId}:`,
-          error
-        );
-        replyResults.push({
-          emailId: emailInfo.emailId,
-          threadId: emailInfo.threadId,
-          success: false,
-          replyMessageId: null,
-          error: error instanceof Error ? error.message : "Unknown error",
-          senderName: emailInfo.senderName,
-          senderEmail: emailInfo.senderEmail,
-        });
-        failedReplies++;
+        console.error("Error sending reply:", error);
       }
     }
 
-    const result = {
-      totalEmails: inputData.length,
-      successfulReplies,
-      failedReplies,
-      replyResults,
-    };
-
-    console.log(`📊 Reply Results Summary:`);
-    console.log(`   📧 Total emails: ${result.totalEmails}`);
-    console.log(`   ✅ Successful replies: ${successfulReplies}`);
-    console.log(`   ❌ Failed replies: ${failedReplies}`);
-    console.log(
-      `   📈 Success rate: ${result.totalEmails > 0 ? Math.round((successfulReplies / result.totalEmails) * 100) : 0}%`
-    );
-
-    return result;
+    return `Sent Mail Successfully!`;
   },
 });
 

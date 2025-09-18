@@ -1086,23 +1086,68 @@ Use the Context7 tools in the exact order shown; do NOT call any other tools.`,
                 "context7_get-library-docs",
               ],
             },
-
             {
               step: "question_generation",
               prompt: `You are an interviewer-question node.
+
 DYNAMIC CONTEXT:
+  resumeText = \`${resumeText}\`
+  jobPosition = \`${jobPosition}\`
   workExperience = \`${workExperience}\` years
 
 PREVIOUS RESULTS:
 {{LAST_RESULT}}
 
 TASK:
-Create 6-8 concise, role-specific questions that:
-- test the **stable, mainstream features** listed in latestDocInsights,
-- map to **actual job requirements**,
-- match the candidate’s experience level (junior ≤2 y, mid 3-5 y, senior 6+ y).
-Keep questions practical and answerable in 1-2 minutes; avoid bleeding-edge or version-specific trivia.`,
-              instructions: `Return ONLY {"interviewQuestions":["Q1","Q2",...]}. No functions, no markdown.`,
+Create 6–8 concise, profile-specific interview questions that:
+- Vary in type (text-based, example-based, multiple-choice, riddle-based).
+- Are practical, relevant to the candidate's resume and the job position, and tailored to their experience level (junior ≤2 y, mid 3–5 y, senior 6+ y).
+- Have a mix of questions that are:
+  - Situation-based: related to real-life scenarios, past experiences, and hypothetical situations.
+  - Personal experience-based: related to the candidate's past projects, work experiences, or skills.
+  - Coding topic-related: related to programming languages, data structures, algorithms, software development methodologies, or technical tools.
+- Order the questions from low difficulty to high.
+- For technical roles, include scenario-based, code review, syntax, or small coding tasks.
+- For non-technical roles, include behavioral, prioritization, process, or stakeholder scenario questions.
+- Each question should be answerable in 1–2 minutes.
+
+QUESTION STRUCTURE:
+{
+  "question": <string>,
+  "type": <"text-based" | "example-based" | "multiple-choice" | "riddle-based">,
+  "options": <array of strings> (only applicable for multiple-choice questions),
+  "example": <string> (only applicable for example-based questions)
+}
+
+INSTRUCTIONS:
+Return ONLY an array of question objects, e.g.:
+[
+  {
+    "question": "Can you describe a situation where you had to troubleshoot a difficult bug?",
+    "type": "text-based",
+  },
+  {
+    "question": "How do you approach code refactoring?",
+    "type": "text-based",
+  },
+  {
+    "question": "Write a Python function to implement a neural network layer with dropout.",
+    "type": "example-based",
+    "example": "def neural_network_layer(input_data, num_hidden_units, dropout_rate):\n    # implement the function"
+  },
+  {
+    "question": "What is the difference between tf.data and torch.utils.data?",
+    "type": "multiple-choice",
+    "options": ["tf.data is a high-level API for loading and manipulating data, while torch.utils.data is a lower-level API", "tf.data is a lower-level API for loading and manipulating data, while torch.utils.data is a higher-level API", "tf.data is a tensor-focused API, while torch.utils.data is a data-focused API"]
+  },
+  {
+    "question": "What is the output of the following code: def foo(x): return x * x",
+    "type": "riddle-based",
+  }
+
+  No tags, no JSON objects, no markdown—just the array of question strings.
+`,
+              instructions: `Return ONLY an array of question strings as shown above. No tags, no JSON objects, no markdown.`,
               tools: [],
             },
           ];
@@ -1133,27 +1178,12 @@ Keep questions practical and answerable in 1-2 minutes; avoid bleeding-edge or v
             lastResult = reply.text;
           }
 
-          let parsedResult;
-          try {
-            let cleanResponse = lastResult;
-
-            cleanResponse = cleanResponse.replace(/^\d+\.\s*/gm, "");
-            cleanResponse = cleanResponse.replace(/^\s*\n\s*/gm, "");
-
-            const jsonMatch = cleanResponse.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              parsedResult = JSON.parse(jsonMatch[0]);
-            } else {
-              throw new Error("No JSON found in response");
-            }
-
-            console.log("Profile:", position);
-            console.log("Experience:", workExperience);
-            console.log("pre questionaires generated:", parsedResult);
-          } catch (parseError) {
-            console.error("Failed to parse AI response as JSON:", parseError);
-            continue;
-          }
+          console.log("Position applied:", jobPosition);
+          console.log("Current Experience:", workExperience);
+          console.log(
+            "Parsed Generated interview questions:",
+            JSON.parse(lastResult)
+          );
         } catch (err) {
           console.error(
             "Error occurred while generating interview questions:",
@@ -1163,10 +1193,18 @@ Keep questions practical and answerable in 1-2 minutes; avoid bleeding-edge or v
       } catch (err) {
         console.error("Error occurred while AI screening:", err);
       }
-      
-      const applicationCategory = mail.keyDetails?.position
-        ? `${mail.keyDetails?.position?.replaceAll(" ", "_").toUpperCase()}_APPLICANTS`
-        : "";
+
+      // const confirmationMailResp = await sendCustomThreadReplyEmail({
+      //   name: mail.name || "",
+      //   position: mail.keyDetails?.position || "unclear",
+      //   userEmail: mail.userEmail,
+      //   subject: mail.subject,
+      //   threadId: mail.threadId,
+      //   emailId: mail.emailId,
+      //   templateId: "templates-confirmation-job_application_received",
+      //   addLabelIds: ["Stage 1 Response","APPLICANTS"],
+      //   removeLabelIds: ["INCOMPLETE_APPLICATIONS"],
+      // })
 
       // const confirmationMailResp = await sendThreadReplyEmail({
       //   name: mail.name || "",

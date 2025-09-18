@@ -9,6 +9,7 @@ import { fresherTechTemplate } from "../templates/requestKeyDetails/tech/fresher
 import { nonTechTemplate } from "../templates/requestKeyDetails/nonTech";
 import { creativeTemplate } from "../templates/requestKeyDetails/creative";
 import { resendKeyDetailsTemplate } from "../templates/requestKeyDetails/resendKeyDetails";
+import { preQuestionnaireTemplate } from "../templates/requestKeyDetails/preQuestionnaire";
 
 interface EmailData {
   to: string | null;
@@ -619,3 +620,202 @@ export const sendThreadReplyEmail = async ({
   }
 };
 
+export const customizeTemplate = ({
+  templateId,
+  customItems,
+}: {
+  templateId: string;
+  customItems: {
+    question: string;
+    type: string;
+    example?: string;
+    options?: string[];
+  }[];
+}) => {
+  try {
+    let templateMailBody = "";
+    switch (templateId) {
+      case "templates-pre-questionnaire-details":
+        templateMailBody = preQuestionnaireTemplate;
+        break;
+      default:
+        console.error(`Template not found in switch case: ${templateId}`);
+        break;
+    }
+    if (!templateMailBody) throw new Error(`${templateId} template not found`);
+
+    let customizedQuestions = "";
+
+    customItems.forEach((item) => {
+      let formattedQuestion = `${item.question.trim().endsWith('.') ? item.question.trim().slice(0, -1) + '?' : item.question.trim().endsWith('?') ? item.question.trim() : item.question.trim() + '?'}`.replace(/\s\s+/g, ' ' );
+
+      switch(item.type){
+        case 'text-based':
+          customizedQuestions += `• ${formattedQuestion}\r\n`;
+          break;
+
+        case 'example-based':
+          customizedQuestions += `• ${formattedQuestion}\r\n${item.example ? `Example: ${item.example}\r\n` : ''}`;
+          break;
+
+        case 'riddle-based':
+          customizedQuestions += `• ${formattedQuestion}\r\n`;
+          break;
+
+        case 'multiple-choice':
+          customizedQuestions += `• ${formattedQuestion}\r\n${item.options?.length ? `Options: \r\n${item.options.map((option, index) => `${index + 1}) ${option}`).join("\r\n")}\r\n` : ''}`;
+          break;
+
+        default:
+          break;
+      }
+    });
+
+    const customizedTemplate = templateMailBody.replace(
+      "{{questions}}",
+      customizedQuestions
+    );
+
+    return customizedTemplate;
+  } catch (err) {
+    console.log(err);
+  }
+};
+
+interface CustomizedEmailProps {
+  name: string;
+  position: string;
+  userEmail: string;
+  subject: string | null;
+  threadId: string;
+  emailId: string;
+  inReplyTo: string;
+  references: string[];
+  templateMailBody: string;
+  addLabelIds?: string[];
+  removeLabelIds?: string[];
+}
+
+export const sendCustomizeThreadReplyEmail = async ({
+  name,
+  position,
+  userEmail,
+  subject,
+  threadId,
+  emailId,
+  inReplyTo,
+  references,
+  templateMailBody,
+  addLabelIds,
+  removeLabelIds,
+}: CustomizedEmailProps): Promise<gmail_v1.Schema$Message> => {
+  try {
+    if (!templateMailBody) throw new Error(`template mail body not found`);
+
+    const signatureHtml = `
+    <div dir="ltr"><div dir="ltr" style="color:rgb(34,34,34)"><div><font face="georgia, serif"><span style="color:rgb(12,52,61)">Thank You</span><span style="color:rgb(12,52,61)"><font size="2">,</font></span></font></div><div><span style="color:rgb(12,52,61)"><font face="georgia, serif">Talent Recruiter</font></span> <span style="color:rgb(12,52,61)"><font face="georgia, serif">|</font></span> <span style="color:rgb(12,52,61)"><font face="georgia, serif" size="2" color="#38761d">oCode Technologies</font></span></div><div><font face="georgia, serif"><span style="color:rgb(12,52,61)">Phone: </span><span style="color:rgb(12,52,61)"><a href="tel:+919872294640">+919872294640</a></span><span style="color:rgb(12,52,61)"> | </span><span style="color:rgb(12,52,61)"><a href="tel:+918580541322">+918580541322</a></span><br></font></div><div><span style="color:rgb(12,52,61)"><a href="https://in.linkedin.com/company/ocodeco" target="_blank">LinkedIn</a></span> <span style="color:rgb(12,52,61)"><font face="georgia, serif">|</font></span> <span style="color:rgb(12,52,61)"><a href="https://www.fb.com/OcodeTech/" target="_blank">Facebook</a></span><br></div><div><font size="2" face="georgia, serif" color="#38761d">Website: <a href="http://www.ocode.co/" target="_blank">www.ocode.co</a></font></div></div>
+    `;
+
+    const signatureText = signatureHtml.replace(/<[^>]*>/g, "");
+
+    const replyMail = templateMailBody
+      .replaceAll("[Candidate Name]", name ? name : "Candidate")
+      .replaceAll(
+        "[Job Title]",
+        position && position !== "unclear" ? position : "applied"
+      )
+      .replaceAll("[Company Name]", "oCode Technologies");
+
+    const replyMailWithSignature = signatureHtml
+      ? `${replyMail}\n${signatureText}`
+      : replyMail;
+
+    const htmlBody = replyMail
+      .split("\n")
+      .map((line) => {
+        const trimmedLine = line.trim();
+        if (trimmedLine === "") {
+          return "<br>";
+        }
+        return `<p style="margin: 0 0 1em 0; font-family: Arial, sans-serif; line-height: 1.6; color: #333333;">${trimmedLine}</p>`;
+      })
+      .join("");
+
+    const fullHtmlBody = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${subject?.includes("Re:") ? subject : `Re: ${subject}`}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f8f9fa; color: #333333;">
+  <div style="width: 100%; padding-top: 20px; padding-left: 20px; padding-right: 20px; background-color: #ffffff; box-sizing: border-box;">
+    ${htmlBody}
+  </div>
+</body>
+</html>`;
+
+    const fullHtmlBodyWithSignature = signatureHtml
+      ? `${fullHtmlBody}<div style="padding-left: 20px; padding-right: 20px"><br>${signatureHtml}</div>`
+      : fullHtmlBody;
+
+    const boundary = "boundary_" + Math.random().toString(36).substring(7);
+    const recruitmentEmail = process.env.RECRUITMENT_MAIL || "hi@ocode.co";
+    const senderName = process.env.RECRUITER_NAME || "oCode Recruiter";
+    const bccEmail = process.env.BCC_MAIL || "career@browsewire.net";
+
+    const emailContent = [
+      `From: ${senderName} <${recruitmentEmail}>`,
+      `To: ${userEmail}`,
+      `Subject: ${subject?.includes("Re:") ? subject : `Re: ${subject}`}`,
+      `In-Reply-To: ${inReplyTo}`,
+      `References: ${references?.join(" ")}`,
+      `Bcc: ${bccEmail}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      `Content-Type: text/plain; charset="UTF-8"`,
+      `Content-Transfer-Encoding: 7bit`,
+      "",
+      replyMailWithSignature,
+      "",
+      `--${boundary}`,
+      `Content-Type: text/html; charset="UTF-8"`,
+      `Content-Transfer-Encoding: 7bit`,
+      "",
+      fullHtmlBodyWithSignature,
+      "",
+      `--${boundary}--`,
+    ].join("\r\n");
+
+    const rawMessage = Buffer.from(emailContent)
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+
+    const sendMailResp = await sendTestEmail({
+      to: userEmail,
+      subject: subject?.includes("Re:") ? subject : `Re: ${subject}`,
+      inReplyTo: inReplyTo,
+      references: references,
+      threadId: threadId,
+      bccEmail: bccEmail,
+      rawMessage: rawMessage,
+    });
+
+    if (sendMailResp.id && sendMailResp.labelIds?.includes("SENT")) {
+      await modifyEmailLabels({
+        emailId: emailId,
+        threadId: threadId,
+        addLabelIds: addLabelIds || [],
+        removeLabelIds: removeLabelIds || [],
+      });
+    }
+    return sendMailResp;
+  } catch (err) {
+    console.log(err);
+    return { id: "", threadId: "", labelIds: [] } as gmail_v1.Schema$Message;
+  }
+};
