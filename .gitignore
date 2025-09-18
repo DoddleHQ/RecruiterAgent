@@ -9,3 +9,6 @@ service-account.json
 .env
 *.db
 *.db-*
+
+# mastra
+.mastra/

@@ -7,6 +7,7 @@ import { mastra } from "..";
 import { MDocument } from "@mastra/rag";
 import crypto from "crypto";
 import { vectorStore } from "../../vectorDB/connection";
+import { env } from "../../utils/config";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const jobOpeningsDir = path.resolve(dirname, "../../src/mastra/job-openings");
@@ -27,12 +28,16 @@ const JobOpeningSchema = z
   })
   .describe("Job opening details");
 
+if (!env.OLLAMA_BASE_URL) {
+  throw new Error("OLLAMA_BASE_URL environment variable is not set");
+}
+
 export const getJobOpenings = async (req: Request, res: Response) => {
   const jobQuery = req.query.jobQuery;
   console.log("jobQuery", jobQuery);
   if (jobQuery && typeof jobQuery === "string" && jobQuery.trim() !== "") {
     try {
-      const response = await fetch("http://localhost:11434/api/embed", {
+       const response = await fetch(`${env.OLLAMA_BASE_URL}/api/embed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -95,7 +100,7 @@ export const createJobOpening = async (req: Request, res: Response) => {
     });
 
     try {
-      const response = await fetch("http://localhost:11434/api/embed", {
+       const response = await fetch(`${env.OLLAMA_BASE_URL}/api/embed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
