@@ -9,7 +9,7 @@ import {
   sendThreadReplyEmail,
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
-import { fastParseEmail } from "../../utils/emailUtils";
+import { fastParseEmail, findPotentialJobTitle } from "../../utils/emailUtils";
 import * as cheerio from "cheerio";
 import { env } from "../../utils/config";
 
@@ -317,9 +317,10 @@ const extractEmailMetaData = createStep({
 
       const hasResume = resumeLink ? true : false;
 
-      const potentialJobTitle = subject
-        ? subject.split("New application for")[1].split(",")[0].trim()
-        : null;
+      const potentialJobTitle = findPotentialJobTitle({
+        subject: subject ?? "",
+        body: decodedBody,
+      });
 
       let potentialCategory = "unclear";
 
@@ -357,7 +358,11 @@ const extractEmailMetaData = createStep({
       };
 
       for (const [cat, keywords] of Object.entries(categoryKeywords)) {
-        if (keywords.some((k) => potentialJobTitle ?? "".toLowerCase().includes(k))) {
+        if (
+          keywords.some(
+            (k) => potentialJobTitle ?? "".toLowerCase().includes(k)
+          )
+        ) {
           potentialCategory = cat;
           break;
         }
@@ -369,7 +374,13 @@ const extractEmailMetaData = createStep({
         ...emailMetaData,
         hasResume,
         position:
-          fastResult?.job_title.trim() ?? potentialJobTitle ?? "unclear",
+          (potentialJobTitle ?? fastResult?.job_title)?.trim().slice(0, 50) ||
+          (potentialJobTitle?.length > 50 ||
+          (fastResult?.job_title ?? "").length > 50
+            ? "unclear"
+            : (potentialJobTitle ?? fastResult?.job_title)
+                ?.trim()
+                .slice(0, 50) || "unclear"),
         category: fastResult?.category ?? potentialCategory ?? "unclear",
         experienceStatus: fastResult?.experience_status || "unclear",
       };

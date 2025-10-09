@@ -93,7 +93,7 @@ cron.schedule("0 */1 * * *", () => {
   const workflowIds = [
     "recruitmentPreStageWorkflow",
     "recruitmentIndeedPreStageWorkflow",
-    // "trackReplyMailsWorkflow",
+    "trackReplyMailsWorkflow",
   ];
 
   Promise.allSettled(

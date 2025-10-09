@@ -7,6 +7,35 @@ type FastParseResult = {
   category: string;
 } | null;
 
+export function findPotentialJobTitle({
+  subject,
+  body,
+}: {
+  subject: string;
+  body: string;
+}) {
+
+  const subjectParts = subject.split("New application for ");
+  const subjectJobTitle = subjectParts.length > 1 ? subjectParts[1].split(",")[0].trim() : null;
+
+  const subjectAppliedParts = subject.split("New application received for the position of ");
+  const subjectAppliedJobTitle = subjectAppliedParts.length > 1 ? subjectAppliedParts[1].split("at")[0].trim() : null;
+
+  const bodyParts = body.split("Job Opening:");
+  const bodyJobTitle = bodyParts.length > 1 ? bodyParts[1].split("[")[0].trim() : null;
+
+  const bodyAppliedParts = body.split("applied to the");
+  const bodyAppliedJobTitle = bodyAppliedParts.length > 1 ? bodyAppliedParts[1].split("position")[0].trim() : null;
+
+  return (
+    subjectJobTitle ||
+    subjectAppliedJobTitle ||
+    bodyJobTitle ||
+    bodyAppliedJobTitle ||
+    ""
+  );
+}
+
 export function fastParseEmail(subject: string, body: string): FastParseResult {
   const text = (subject + " " + body)
     .replace(/\r\n|\r|\n/g, " ")

@@ -2,12 +2,15 @@ import { createStep, createWorkflow } from "@mastra/core";
 import z from "zod";
 import {
   containsKeyword,
+  customizeTemplate,
   getAttachment,
   getEmailContent,
+  getLabelId,
   getLabelNames,
   getThreadMessages,
   gmailSearchEmails,
   modifyEmailLabels,
+  sendCustomizeThreadReplyEmail,
   sendThreadReplyEmail,
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
@@ -20,6 +23,7 @@ import {
   extractDetailedCandidateInfo,
   extractTextFromAttachment,
   fastParseEmail,
+  findPotentialJobTitle,
 } from "../../utils/emailUtils";
 import { context7Mcp } from "../mcpservers/context7";
 import { queryVectorTool } from "../tools/queryVectorTool";
@@ -78,14 +82,32 @@ const AgentTrigger = createStep({
       return [{ id: "", threadId: "" }];
     }
 
-    const searchInboxInput = {
+    // Use label IDs directly in the query string
+    const stage1InterviewsearchInput = {
       userId: "me",
-      q: `label:"Stage1 Interview" OR label:"Pre-Stage" -label:Rejected -label:High Salary Expectation`,
+      q: `label:unread label:"Stage1 Interview" -label:Rejected -label:"High Salary Expectation"`,
+      maxResults: 100,
+    };
+    const preStagesearchInput = {
+      userId: "me",
+      q: `label:"Pre-Stage" -label:Rejected -label:"High Salary Expectation"`,
       maxResults: 100,
     };
     try {
-      const searchResult = await gmailSearchEmails(searchInboxInput);
-      return searchResult;
+      const stage1SearchResult = await gmailSearchEmails(
+        stage1InterviewsearchInput
+      );
+      const preStageSearchResult = await gmailSearchEmails(preStagesearchInput);
+      return [
+        ...stage1SearchResult.map((email) => ({
+          id: email.id,
+          threadId: email.threadId,
+        })),
+        ...preStageSearchResult.map((email) => ({
+          id: email.id,
+          threadId: email.threadId,
+        })),
+      ];
     } catch (err) {
       console.log(err);
       return [{ id: "", threadId: "" }];
@@ -161,6 +183,7 @@ const ExtractEmailMetaDataOutput = z
     userEmail: z.string(),
     subject: z.string(),
     body: z.string(),
+    firstMessageBody: z.string(),
     labels: z.array(z.string()),
   })
   .nullable()
@@ -219,8 +242,11 @@ const extractEmailMetaData = createStep({
           ? extractEmailAndName(replyToAddress)
           : extractEmailAndName(userAddress);
 
-      if (!userEmail?.includes("@gmail.com")) {
-        console.log("Email is not from Gmail, skipping", userEmail);
+      if (
+        !userEmail ||
+        (!userEmail.endsWith("@gmail.com") &&
+          !userEmail.endsWith("@indeedemail.com"))
+      ) {
         return null;
       }
 
@@ -249,6 +275,20 @@ const extractEmailMetaData = createStep({
         return null;
       }
 
+      const firstThreadMessage = threadMessages[0];
+
+      const firstThreadMessagePlainTextPart =
+        firstThreadMessage.payload?.parts
+          ?.find((p) => p.mimeType === "multipart/alternative")
+          ?.parts?.find((p2) => p2.mimeType === "text/plain") ||
+        firstThreadMessage.payload?.parts?.find(
+          (p) => p.mimeType === "text/plain"
+        );
+
+      const firstThreadMessageDecodedBody = decodeEmailBody(
+        firstThreadMessagePlainTextPart
+      );
+
       const emailMetaData = {
         id,
         messageId: originalMessageId,
@@ -256,6 +296,7 @@ const extractEmailMetaData = createStep({
         username: username,
         subject: subject,
         body: decodedBody,
+        firstMessageBody: firstThreadMessageDecodedBody,
         threadId: threadId || latestThreadEmail.threadId || "",
         labels: labels || [],
       };
@@ -508,6 +549,7 @@ const analyseApplicantionOutput = z.object({
   body: z.string().nullable(),
   attachment_filename: z.array(z.string().nullable().optional()).nullable(),
   attachmentId: z.array(z.string().nullable().optional()).nullable(),
+  resumeLink: z.string().optional(),
   hasCoverLetter: z.boolean(),
   hasResume: z.boolean(),
   job_title: z.string().nullable(),
@@ -543,19 +585,63 @@ const analyseIncompleteApplications = createStep({
 
       if (threadMessages.length === 0) continue;
 
-      const latestThreadMessage = threadMessages[threadMessages.length - 1];
       // --------------------------------------------------------------------
       // DATA EXTRACTION
 
-      const attachment_filename = latestThreadMessage.payload?.parts
-        ?.filter((p) => p.filename)
-        .map((p) => p.filename);
-      const attachmentId = latestThreadMessage.payload?.parts
-        ?.filter((p) => p.body?.attachmentId)
-        .map((p) => p.body?.attachmentId);
+      // RESUME EXTRACTION FROM THE THREAD MESSAGES
+
+      const candidateMessages = threadMessages.filter((message) => {
+        const fromHeader = message.payload?.headers?.find(
+          (h) => h.name && h.name.toLowerCase() === "from"
+        )?.value;
+        const { email: fromEmail } = extractEmailAndName(fromHeader);
+        return fromEmail === mail.userEmail;
+      });
+
+      let attachment_filename = undefined;
+      let attachmentId = undefined;
+      let candidateThreadMailBodies = undefined;
+
+      const resumeLink =
+        mail.firstMessageBody
+          .split("Resume:")
+          .slice(1)
+          .join("")
+          .split("Cover letter:")
+          .slice(0, 1)
+          .map((s) => s.trim())
+          .pop() || "";
+
+      for (let message of candidateMessages) {
+        const attachmentFilename = message.payload?.parts
+          ?.filter((p) => p.filename)
+          .map((p) => p.filename);
+        const attachment_Id = message.payload?.parts
+          ?.filter((p) => p.body?.attachmentId)
+          .map((p) => p.body?.attachmentId);
+
+        const plainTextPart =
+          message.payload?.parts
+            ?.find((p) => p.mimeType === "multipart/alternative")
+            ?.parts?.find((p2) => p2.mimeType === "text/plain") ||
+          message.payload?.parts?.find((p) => p.mimeType === "text/plain");
+
+        const decodedBody = decodeEmailBody(plainTextPart).split("On")[0];
+
+        candidateThreadMailBodies = decodedBody
+          ? (candidateThreadMailBodies ?? "") + decodedBody
+          : (candidateThreadMailBodies ?? "");
+
+        if (attachmentFilename) {
+          attachment_filename = attachmentFilename;
+        }
+        if (attachment_Id) {
+          attachmentId = attachment_Id;
+        }
+      }
 
       const hasCoverLetter =
-        containsKeyword({
+        (containsKeyword({
           text: mail.body,
           keywords: [
             // classic openers / closers
@@ -637,14 +723,100 @@ const analyseIncompleteApplications = createStep({
             "your product roadmap",
             "your commitment to excellence",
           ],
-        }) &&
+        }) ??
+          containsKeyword({
+            text: candidateThreadMailBodies ?? "",
+            keywords: [
+              // classic openers / closers
+              "cover letter",
+              "dear hiring manager",
+              "dear sir or madam",
+              "dear team",
+              "dear recruiter",
+              "dear [company]",
+              "i am writing to",
+              "i am excited to apply",
+              "i am reaching out",
+              "i am interested in",
+              "thank you for considering",
+              "thank you for your time",
+              "sincerely yours",
+              "best regards",
+
+              // self-introduction / intent
+              "with x years of experience",
+              "with hands-on experience in",
+              "i bring to the table",
+              "i offer",
+              "i am eager to",
+              "i am passionate about",
+              "i am confident that",
+              "i would love the opportunity",
+              "i am looking forward to",
+              "contribute to your team",
+              "add value to your organization",
+              "aligns with my career goals",
+
+              // skill highlights
+              "proficient in",
+              "expertise in",
+              "skilled at",
+              "experience working with",
+              "experience includes",
+              "hands-on knowledge of",
+              "demonstrated ability in",
+              "proven track record",
+              "strong background in",
+              "solid understanding of",
+
+              // achievements & impact
+              "improved",
+              "increased",
+              "reduced",
+              "achieved",
+              "delivered",
+              "optimized",
+              "enhanced",
+              "streamlined",
+              "boosted",
+              "spearheaded",
+              "led the development",
+              "successfully launched",
+              "production-ready apps",
+              "real-world projects",
+
+              // soft skills
+              "team-oriented",
+              "detail-oriented",
+              "self-motivated",
+              "fast learner",
+              "adaptable",
+              "collaborative",
+              "multitask",
+              "problem-solving",
+              "critical thinking",
+              "communication skills",
+
+              // company-centric phrases
+              "your company’s mission",
+              "your innovative projects",
+              "your dynamic environment",
+              "your development team",
+              "your engineering culture",
+              "your product roadmap",
+              "your commitment to excellence",
+            ],
+          })) &&
         mail.body.length >= 300 &&
         mail.body.trim().split(/\s+/).length >= 50;
 
       const hasResume =
-        attachmentId?.length && attachment_filename?.length
+        attachmentId &&
+        attachmentId?.length &&
+        attachment_filename &&
+        attachment_filename?.length
           ? containsKeyword({
-              text: attachment_filename?.[0] || "",
+              text: attachment_filename?.join(" ") || "",
               keywords: ["resume", "cv"],
             }) ||
             containsKeyword({
@@ -665,10 +837,12 @@ const analyseIncompleteApplications = createStep({
               text: mail.body || "",
               keywords: ["resume", "Resume", "cv", "CV"],
             })
-          : containsKeyword({
-              text: mail.body || "",
-              keywords: ["resume", "Resume", "cv", "CV"],
-            });
+          : resumeLink
+            ? true
+            : containsKeyword({
+                text: mail.body || "",
+                keywords: ["resume", "Resume", "cv", "CV"],
+              });
 
       const emailMetaData = {
         id: mail.id,
@@ -681,6 +855,7 @@ const analyseIncompleteApplications = createStep({
         body: mail.body,
         attachment_filename: attachment_filename || [],
         attachmentId: attachmentId || [],
+        resumeLink: resumeLink,
         hasCoverLetter,
         hasResume,
         job_title: "unclear",
@@ -693,11 +868,10 @@ const analyseIncompleteApplications = createStep({
         continue;
       }
 
-      const potentialJobTitle = mail.body
-        .split("Job Opening:")
-        .splice(1)
-        .join(" ")
-        .split("[")[0];
+      const potentialJobTitle = findPotentialJobTitle({
+        subject: mail.subject,
+        body: mail.body,
+      });
 
       const fastResult = fastParseEmail(mail.subject, mail.body);
 
@@ -710,7 +884,13 @@ const analyseIncompleteApplications = createStep({
         applicantsData.push({
           ...emailMetaData,
           job_title:
-            fastResult?.job_title.trim() ?? potentialJobTitle ?? "unclear",
+            (potentialJobTitle ?? fastResult?.job_title)?.trim().slice(0, 50) ||
+            (potentialJobTitle?.length > 50 ||
+            fastResult?.job_title?.length > 50
+              ? "unclear"
+              : (potentialJobTitle ?? fastResult?.job_title)
+                  ?.trim()
+                  .slice(0, 50) || "unclear"),
           category: fastResult.category || "unclear",
           experience_status: fastResult.experience_status || "unclear",
         });
@@ -804,12 +984,7 @@ Return **only** the JSON object—no explanation.
         }
       } catch (err) {
         console.log("error occured while extracting job title", err);
-        incompleteApplicationsData.push({
-          ...emailMetaData,
-          hasCoverLetter,
-          hasResume,
-          job_title: null,
-        });
+        continue;
       }
     }
 
@@ -989,7 +1164,7 @@ const migrateApplicantsWithKeyDetails = createStep({
       }
 
       try {
-        const { currentCTC, expectedCTC, position, workExp } = keyDetails;
+        const { position, workExp } = keyDetails;
 
         // Validate input details
         const isMeaningful = (value: string) =>
@@ -1043,7 +1218,7 @@ PREVIOUS RESULTS:
 {{LAST_RESULT}}
 
 PIPELINE:
-1. Call tool query-vector({"query":"${query}","limit":5}).
+1. Call tool query-vector({"query":"${query}","limit":5}) with limit parameter as number.
 2. Pick the single best hit: highest score AND title similar to "${jobPosition}".
 3. If no hit OR top score < 0.75 → return {"jobOpeningFound":false}.
 4. Else extract: jobTitle, jobDescription, KeyResponsibilities, Requirements.`,
@@ -1178,12 +1353,46 @@ Return ONLY an array of question objects, e.g.:
             lastResult = reply.text;
           }
 
-          console.log("Position applied:", jobPosition);
-          console.log("Current Experience:", workExperience);
-          console.log(
-            "Parsed Generated interview questions:",
-            JSON.parse(lastResult)
-          );
+          try {
+            const questions = JSON.parse(lastResult);
+            if (!questions) {
+              throw new Error("Failed to parse result as JSON");
+            }
+
+            const customizedTemplate = customizeTemplate({
+              templateId: "templates-pre-questionnaire-details",
+              customItems: questions,
+            });
+            if (!customizedTemplate) {
+              throw new Error("Failed to customize template");
+            }
+
+            await sendCustomizeThreadReplyEmail({
+              name: mail.name || "User",
+              position: mail.keyDetails?.position || "unclear",
+              userEmail: mail.userEmail,
+              subject: mail.subject,
+              threadId: mail.threadId,
+              emailId: mail.id,
+              inReplyTo: mail.messageId,
+              references: [mail.messageId],
+              addLabelIds: ["Stage1 Pre-Questionnaire"],
+              removeLabelIds: ["Stage1 Interview"],
+              templateMailBody: customizedTemplate,
+            });
+          } catch (error) {
+            if (error instanceof SyntaxError) {
+              console.error(
+                `Syntax error while parsing result: ${error.message}`
+              );
+            } else if (error instanceof Error) {
+              console.error(
+                `Error customizing template or sending email: ${error.message}`
+              );
+            } else {
+              console.error("Unknown error occurred:", error);
+            }
+          }
         } catch (err) {
           console.error(
             "Error occurred while generating interview questions:",
@@ -1193,33 +1402,6 @@ Return ONLY an array of question objects, e.g.:
       } catch (err) {
         console.error("Error occurred while AI screening:", err);
       }
-
-      // const confirmationMailResp = await sendCustomThreadReplyEmail({
-      //   name: mail.name || "",
-      //   position: mail.keyDetails?.position || "unclear",
-      //   userEmail: mail.userEmail,
-      //   subject: mail.subject,
-      //   threadId: mail.threadId,
-      //   emailId: mail.emailId,
-      //   templateId: "templates-confirmation-job_application_received",
-      //   addLabelIds: ["Stage 1 Response","APPLICANTS"],
-      //   removeLabelIds: ["INCOMPLETE_APPLICATIONS"],
-      // })
-
-      // const confirmationMailResp = await sendThreadReplyEmail({
-      //   name: mail.name || "",
-      //   position: mail.keyDetails?.position || "unclear",
-      //   userEmail: mail.userEmail,
-      //   subject: mail.subject,
-      //   threadId: mail.threadId,
-      //   emailId: mail.emailId,
-      //   templateId: "templates-confirmation-job_application_received",
-      //   addLabelIds: [applicationCategory, "APPLICANTS"],
-      //   removeLabelIds: [
-
-      //     "INCOMPLETE_APPLICATIONS",
-      //   ],
-      // });
     }
 
     return "applicants with key details migrated successfully";
@@ -1272,103 +1454,101 @@ const migrateConfirmedApplicants = createStep({
     for (let mail of applicantsData) {
       if (!mail.userEmail) continue;
 
-      console.log("mail with all details in pre stage reply mail", mail);
+      const applicationCategory =
+        mail.category !== "unclear" && mail.category
+          ? mail.category
+          : "Unclear Applications";
 
-      // const applicationCategory =
-      //   mail.category !== "unclear" && mail.category
-      //     ? mail.category
-      //     : "Unclear Applications";
+      switch (mail.category) {
+        case "Developer":
+          const templateId =
+            mail.experience_status === "experienced"
+              ? "templates-request_key_details-developer-experienced"
+              : mail.experience_status === "fresher"
+                ? "templates-request_key_details-developer-fresher"
+                : null;
 
-      // switch (mail.category) {
-      //   case "Developer":
-      //     const templateId =
-      //       mail.experience_status === "experienced"
-      //         ? "templates-request_key_details-developer-experienced"
-      //         : mail.experience_status === "fresher"
-      //           ? "templates-request_key_details-developer-fresher"
-      //           : null;
+          if (!templateId || !mail.job_title || mail.job_title === "unclear") {
+            await modifyEmailLabels({
+              emailId: mail.id,
+              addLabelIds: ["Unclear Applications"],
+              removeLabelIds: ["Pre-Stage"],
+            });
+            continue;
+          }
 
-      //     if (!templateId || !mail.job_title || mail.job_title === "unclear") {
-      //       await modifyEmailLabels({
-      //         emailId: mail.id,
-      //         addLabelIds: ["Unclear Applications"],
-      //         removeLabelIds: ["Pre-Stage"],
-      //       });
-      //       continue;
-      //     }
+          await sendThreadReplyEmail({
+            name: mail.name || "",
+            position: mail.job_title || "unclear",
+            userEmail: mail.userEmail,
+            subject: mail.subject,
+            threadId: mail.threadId,
+            emailId: mail.id,
+            inReplyTo: mail.messageId,
+            references: [mail.messageId],
+            templateId: templateId,
+            addLabelIds: [applicationCategory, "Stage1 Interview"],
+            removeLabelIds: ["Pre-Stage"],
+          });
 
-      //     await sendThreadReplyEmail({
-      //       name: mail.name || "",
-      //       position: mail.job_title || "unclear",
-      //       userEmail: mail.userEmail,
-      //       subject: mail.subject,
-      //       threadId: mail.threadId,
-      //       emailId: mail.id,
-      //       inReplyTo: mail.messageId,
-      //       references: [mail.messageId],
-      //       templateId: templateId,
-      //       addLabelIds: [applicationCategory, "Stage1 Interview"],
-      //       removeLabelIds: ["Pre-Stage"],
-      //     });
+          break;
 
-      //     break;
+        case "Recruiter":
+          await sendThreadReplyEmail({
+            name: mail.name || "",
+            position: mail.job_title || "unclear",
+            userEmail: mail.userEmail,
+            subject: mail.subject,
+            threadId: mail.threadId,
+            emailId: mail.id,
+            inReplyTo: mail.messageId,
+            references: [mail.messageId],
+            templateId: "templates-request_key_details-non-tech",
+            addLabelIds: [applicationCategory, "Stage1 Interview"],
+            removeLabelIds: ["Pre-Stage"],
+          });
+          break;
 
-      //   case "Recruiter":
-      //     await sendThreadReplyEmail({
-      //       name: mail.name || "",
-      //       position: mail.job_title || "unclear",
-      //       userEmail: mail.userEmail,
-      //       subject: mail.subject,
-      //       threadId: mail.threadId,
-      //       emailId: mail.id,
-      //       inReplyTo: mail.messageId,
-      //       references: [mail.messageId],
-      //       templateId: "templates-request_key_details-non-tech",
-      //       addLabelIds: [applicationCategory, "Stage1 Interview"],
-      //       removeLabelIds: ["Pre-Stage"],
-      //     });
-      //     break;
+        case "Sales / Marketing":
+          await sendThreadReplyEmail({
+            name: mail.name || "",
+            position: mail.job_title || "unclear",
+            userEmail: mail.userEmail,
+            subject: mail.subject,
+            threadId: mail.threadId,
+            emailId: mail.id,
+            inReplyTo: mail.messageId,
+            references: [mail.messageId],
+            templateId: "templates-request_key_details-non-tech",
+            addLabelIds: [applicationCategory, "Stage1 Interview"],
+            removeLabelIds: ["Pre-Stage"],
+          });
+          break;
 
-      //   case "Sales / Marketing":
-      //     await sendThreadReplyEmail({
-      //       name: mail.name || "",
-      //       position: mail.job_title || "unclear",
-      //       userEmail: mail.userEmail,
-      //       subject: mail.subject,
-      //       threadId: mail.threadId,
-      //       emailId: mail.id,
-      //       inReplyTo: mail.messageId,
-      //       references: [mail.messageId],
-      //       templateId: "templates-request_key_details-non-tech",
-      //       addLabelIds: [applicationCategory, "Stage1 Interview"],
-      //       removeLabelIds: ["Pre-Stage"],
-      //     });
-      //     break;
+        case "CREATIVE":
+          await sendThreadReplyEmail({
+            name: mail.name || "",
+            position: mail.job_title || "unclear",
+            userEmail: mail.userEmail,
+            subject: mail.subject,
+            threadId: mail.threadId,
+            emailId: mail.id,
+            inReplyTo: mail.messageId,
+            references: [mail.messageId],
+            templateId: "templates-request_key_details-creative",
+            addLabelIds: [applicationCategory, "Stage1 Interview"],
+            removeLabelIds: ["Pre-Stage"],
+          });
+          break;
 
-      //   case "CREATIVE":
-      //     await sendThreadReplyEmail({
-      //       name: mail.name || "",
-      //       position: mail.job_title || "unclear",
-      //       userEmail: mail.userEmail,
-      //       subject: mail.subject,
-      //       threadId: mail.threadId,
-      //       emailId: mail.id,
-      //       inReplyTo: mail.messageId,
-      //       references: [mail.messageId],
-      //       templateId: "templates-request_key_details-creative",
-      //       addLabelIds: [applicationCategory, "Stage1 Interview"],
-      //       removeLabelIds: ["Pre-Stage"],
-      //     });
-      //     break;
-
-      //   default:
-      //     await modifyEmailLabels({
-      //       emailId: mail.id,
-      //       addLabelIds: ["Unclear Applications"],
-      //       removeLabelIds: ["Pre-Stage"],
-      //     });
-      //     break;
-      // }
+        default:
+          await modifyEmailLabels({
+            emailId: mail.id,
+            addLabelIds: ["Unclear Applications"],
+            removeLabelIds: ["Pre-Stage"],
+          });
+          break;
+      }
     }
 
     return "applicants confirmed and migrated";
@@ -1398,67 +1578,61 @@ const informToReApply = createStep({
         unclearPosition,
       ].filter(Boolean).length;
 
-      console.log(
-        "application with missing details in pre stage workflow",
-        mail
-      );
-      console.log("missingDetailsCount", missingDetailsCount);
-
-      // if (missingDetailsCount > 1) {
-      //   await sendThreadReplyEmail({
-      //     name: mail.name || "",
-      //     position: mail.job_title || "unclear",
-      //     userEmail: mail.userEmail,
-      //     subject: mail.subject,
-      //     threadId: mail.threadId,
-      //     emailId: mail.id,
-      //     inReplyTo: mail.messageId,
-      //     references: [mail.messageId],
-      //     templateId: "templates-rejection-missing_multiple_details",
-      //     addLabelIds: ["Pre-Stage"],
-      //   });
-      // } else if (missingResume) {
-      //   await sendThreadReplyEmail({
-      //     name: mail.name || "",
-      //     position: mail.job_title || "unclear",
-      //     userEmail: mail.userEmail,
-      //     subject: mail.subject,
-      //     threadId: mail.threadId,
-      //     emailId: mail.id,
-      //     inReplyTo: mail.messageId,
-      //     references: [mail.messageId],
-      //     templateId: "templates-rejection-no_resume",
-      //     addLabelIds: ["Pre-Stage"],
-      //   });
-      // } else if (missingCoverLetter) {
-      //   await sendThreadReplyEmail({
-      //     name: mail.name || "",
-      //     position: mail.job_title || "unclear",
-      //     userEmail: mail.userEmail,
-      //     subject: mail.subject,
-      //     threadId: mail.threadId,
-      //     emailId: mail.id,
-      //     inReplyTo: mail.messageId,
-      //     references: [mail.messageId],
-      //     templateId: "templates-rejection-no_cover_letter",
-      //     addLabelIds: ["Pre-Stage"],
-      //   });
-      // } else if (unclearPosition) {
-      //   await sendThreadReplyEmail({
-      //     name: mail.name || "",
-      //     position: mail.job_title || "unclear",
-      //     userEmail: mail.userEmail,
-      //     subject: mail.subject,
-      //     threadId: mail.threadId,
-      //     emailId: mail.id,
-      //     inReplyTo: mail.messageId,
-      //     references: [mail.messageId],
-      //     templateId: "templates-rejection-no_clear_job_position",
-      //     addLabelIds: ["Pre-Stage"],
-      //   });
-      // } else {
-      //   continue;
-      // }
+      if (missingDetailsCount > 1) {
+        await sendThreadReplyEmail({
+          name: mail.name || "",
+          position: mail.job_title || "unclear",
+          userEmail: mail.userEmail,
+          subject: mail.subject,
+          threadId: mail.threadId,
+          emailId: mail.id,
+          inReplyTo: mail.messageId,
+          references: [mail.messageId],
+          templateId: "templates-rejection-missing_multiple_details",
+          addLabelIds: ["Pre-Stage"],
+        });
+      } else if (missingResume) {
+        await sendThreadReplyEmail({
+          name: mail.name || "",
+          position: mail.job_title || "unclear",
+          userEmail: mail.userEmail,
+          subject: mail.subject,
+          threadId: mail.threadId,
+          emailId: mail.id,
+          inReplyTo: mail.messageId,
+          references: [mail.messageId],
+          templateId: "templates-rejection-no_resume",
+          addLabelIds: ["Pre-Stage"],
+        });
+      } else if (missingCoverLetter) {
+        await sendThreadReplyEmail({
+          name: mail.name || "",
+          position: mail.job_title || "unclear",
+          userEmail: mail.userEmail,
+          subject: mail.subject,
+          threadId: mail.threadId,
+          emailId: mail.id,
+          inReplyTo: mail.messageId,
+          references: [mail.messageId],
+          templateId: "templates-rejection-no_cover_letter",
+          addLabelIds: ["Pre-Stage"],
+        });
+      } else if (unclearPosition) {
+        await sendThreadReplyEmail({
+          name: mail.name || "",
+          position: mail.job_title || "unclear",
+          userEmail: mail.userEmail,
+          subject: mail.subject,
+          threadId: mail.threadId,
+          emailId: mail.id,
+          inReplyTo: mail.messageId,
+          references: [mail.messageId],
+          templateId: "templates-rejection-no_clear_job_position",
+          addLabelIds: ["Pre-Stage"],
+        });
+      } else {
+        continue;
+      }
     }
 
     return "applicants rejected successfully and migrated to rejected applicants";
@@ -1534,10 +1708,10 @@ const trackReplyMailsWorkflow = createWorkflow({
         applicantsWithKeys.length > 0,
       migrateApplicantsWithKeyDetails,
     ],
-    // [
-    //   async ({ inputData: { applicantsData } }) => applicantsData.length > 0,
-    //   migrateConfirmedApplicants,
-    // ],
+    [
+      async ({ inputData: { applicantsData } }) => applicantsData.length > 0,
+      migrateConfirmedApplicants,
+    ],
     // [
     //   async ({ inputData: { rejectedWithoutKeys } }) =>
     //     rejectedWithoutKeys.length > 0,

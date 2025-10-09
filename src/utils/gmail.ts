@@ -651,19 +651,19 @@ export const customizeTemplate = ({
 
       switch(item.type){
         case 'text-based':
-          customizedQuestions += `• ${formattedQuestion}\r\n`;
+          customizedQuestions += `<p style="padding-left: 20px">• ${formattedQuestion}</p>\r\n`;
           break;
 
         case 'example-based':
-          customizedQuestions += `• ${formattedQuestion}\r\n${item.example ? `Example: ${item.example}\r\n` : ''}`;
+          customizedQuestions += `<p style="padding-left: 20px">• ${formattedQuestion}\r\n${item.example ? `<p style="padding-left: 30px">• <b>Example:</b> ${item.example}</p>\r\n` : ''}</p>`;
           break;
 
         case 'riddle-based':
-          customizedQuestions += `• ${formattedQuestion}\r\n`;
+          customizedQuestions += `<p style="padding-left: 20px">• ${formattedQuestion}</p>\r\n`;
           break;
 
         case 'multiple-choice':
-          customizedQuestions += `• ${formattedQuestion}\r\n${item.options?.length ? `Options: \r\n${item.options.map((option, index) => `${index + 1}) ${option}`).join("\r\n")}\r\n` : ''}`;
+          customizedQuestions += `<p style="padding-left: 20px">• ${formattedQuestion}\r\n${item.options?.length ? `<p style="padding-left: 30px">• <b>Options:</b> \r\n${item.options.map((option, index) => `<p style="padding-left: 40px">${index + 1}) ${option}</p>`).join("\r\n")}</p>\r\n` : ''}</p>`;
           break;
 
         default:

@@ -44,7 +44,7 @@ export const queryVectorTool = createTool({
       const results = await vectorStore.query({
         indexName: "job-openings",
         queryVector: embeddings[0],
-        topK: limit,
+        topK: Number(limit),
       });
       return results;
     } catch (err) {

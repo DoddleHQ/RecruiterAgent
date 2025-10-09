@@ -7,7 +7,6 @@ import {
   customizeTemplate,
   sendCustomizeThreadReplyEmail,
 } from "../../utils/gmail";
-import { getGmailClient } from "../../OAuth/getGmailClient";
 
 // First node: Search for emails with specific subject and extract basic info
 const searchTestEmails = createStep({

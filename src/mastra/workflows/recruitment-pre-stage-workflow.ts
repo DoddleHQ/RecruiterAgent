@@ -10,7 +10,7 @@ import {
   sendThreadReplyEmail,
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
-import { fastParseEmail } from "../../utils/emailUtils";
+import { fastParseEmail, findPotentialJobTitle } from "../../utils/emailUtils";
 import { env } from "../../utils/config";
 
 const recruitmentMail = env.RECRUITMENT_MAIL;
@@ -497,11 +497,10 @@ const extractEmailMetaData = createStep({
               keywords: ["resume", "Resume", "cv", "CV"],
             });
 
-      const potentialJobTitle = decodedBody
-        .split("Job Opening:")
-        .splice(1)
-        .join(" ")
-        .split("[")[0];
+      const potentialJobTitle = findPotentialJobTitle({
+        subject: subject ?? "",
+        body: decodedBody,
+      });
 
       const fastResult = fastParseEmail(subject ?? "", decodedBody);
 
@@ -516,7 +515,13 @@ const extractEmailMetaData = createStep({
           hasCoverLetter,
           hasResume,
           position:
-            fastResult?.job_title.trim() ?? potentialJobTitle ?? "unclear",
+            (potentialJobTitle ?? fastResult?.job_title)?.trim().slice(0, 50) ||
+            (potentialJobTitle?.length > 50 ||
+            fastResult?.job_title?.length > 50
+              ? "unclear"
+              : (potentialJobTitle ?? fastResult?.job_title)
+                  ?.trim()
+                  .slice(0, 50) || "unclear"),
           category: fastResult.category || "unclear",
           experienceStatus: fastResult.experience_status || "unclear",
         };
