@@ -1379,25 +1379,23 @@ Return ONLY an array of question objects, e.g.:
               customItems: questions,
             });
 
-            console.log("Customized template:", customizedTemplate);
-
             if (!customizedTemplate) {
               throw new Error("Failed to customize template");
             }
 
-            // await sendCustomizeThreadReplyEmail({
-            //   name: mail.name || "User",
-            //   position: mail.keyDetails?.position || "unclear",
-            //   userEmail: mail.userEmail,
-            //   subject: mail.subject,
-            //   threadId: mail.threadId,
-            //   emailId: mail.id,
-            //   inReplyTo: mail.messageId,
-            //   references: [mail.messageId],
-            //   addLabelIds: ["Stage1 Pre-Questionnaire"],
-            //   removeLabelIds: ["Stage1 Interview"],
-            //   templateMailBody: customizedTemplate,
-            // });
+            await sendCustomizeThreadReplyEmail({
+              name: mail.name || "User",
+              position: mail.keyDetails?.position || "unclear",
+              userEmail: mail.userEmail,
+              subject: mail.subject,
+              threadId: mail.threadId,
+              emailId: mail.id,
+              inReplyTo: mail.messageId,
+              references: [mail.messageId],
+              addLabelIds: ["Stage1 Pre-Questionnaire"],
+              removeLabelIds: ["Stage1 Interview"],
+              templateMailBody: customizedTemplate,
+            });
           } catch (error) {
             if (error instanceof SyntaxError) {
               console.error(
