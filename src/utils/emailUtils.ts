@@ -14,8 +14,7 @@ export function findPotentialJobTitle({
   subject: string;
   body: string;
 }) {
-
-  const subjectParts = subject.split("New application for ");
+  const subjectParts = subject.split("New application for ") || subject.split("Application for ");
   const subjectJobTitle = subjectParts.length > 1 ? subjectParts[1].split(",")[0].trim() : null;
 
   const subjectAppliedParts = subject.split("New application received for the position of ");
@@ -24,16 +23,67 @@ export function findPotentialJobTitle({
   const bodyParts = body.split("Job Opening:");
   const bodyJobTitle = bodyParts.length > 1 ? bodyParts[1].split("[")[0].trim() : null;
 
-  const bodyAppliedParts = body.split("applied to the");
+  const bodyAppliedParts = body.split("applied to the") || body.split("Applying for the");
   const bodyAppliedJobTitle = bodyAppliedParts.length > 1 ? bodyAppliedParts[1].split("position")[0].trim() : null;
 
-  return (
-    subjectJobTitle ||
-    subjectAppliedJobTitle ||
-    bodyJobTitle ||
-    bodyAppliedJobTitle ||
-    ""
-  );
+  const simpleResult = subjectJobTitle || subjectAppliedJobTitle || bodyJobTitle || bodyAppliedJobTitle;
+  if (simpleResult) {
+    return simpleResult;
+  }
+
+
+  let jobTitle: string | null = null;
+
+
+  if (subject) {
+    const subjectPatterns = [
+      /^Application for (.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
+      /^New application received for the position of (.+?)(?:\s*\[|\s+at|$)/i,
+      /^Job Opening: (.+?)(?:\s*\[|\s+at|$)/i,
+      /^Applying for the (.+?)(?:\s+Role|\s+Position|$)/i,
+      /^Re:\s*Application for (.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
+      /^Re:\s*New application received for the position of (.+?)(?:\s*\[|\s+at|$)/i,
+    ];
+
+    for (const pattern of subjectPatterns) {
+      const match = subject.match(pattern);
+      if (match) {
+        jobTitle = match[1].trim();
+        jobTitle = jobTitle.replace(/\s*\(.*?\)$/, "").trim();
+        break;
+      }
+    }
+
+    if (jobTitle) {
+      jobTitle = jobTitle
+        .replace(/\s+Position$/i, "")
+        .replace(/\s+Role$/i, "")
+        .replace(/\s+at\s+.+$/i, "")
+        .replace(/\s*\[.+\]$/, "")
+        .trim();
+    }
+  }
+
+  if (!jobTitle && body) {
+    const bodyPatterns = [
+      /(?:I am applying for|Applying for) the (.+?)(?:\s+Role|\s+Position|$)/i,
+      /(?:I'm|I am) interested in the (.+?)(?:\s+Role|\s+Position|$)/i,
+      /(?:position|role) of (.+?)(?:\s+at|\s*\[|$)/i,
+      /Job Opening: (.+?)(?:\s*\[|\s+at|$)/i,
+      /(?:applying for|position of) (\*?)(.+?)(\*?)(?:\s+Role|\s+Position|$)/i,
+    ];
+
+    for (const pattern of bodyPatterns) {
+      const match = body.match(pattern);
+      if (match) {
+        const titleIndex = match.length > 2 && (match[1] === "*" || match[3] === "*") ? 2 : 1;
+        jobTitle = match[titleIndex].trim();
+        jobTitle = jobTitle.replace(/\*/g, "").trim();
+        break;
+      }
+    }
+  }  
+  return jobTitle || "";
 }
 
 export function fastParseEmail(subject: string, body: string): FastParseResult {

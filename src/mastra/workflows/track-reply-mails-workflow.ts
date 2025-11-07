@@ -494,13 +494,15 @@ const analyseApplicants = createStep({
         - currentCTC: string
         - expectedCTC: string
         - workExp: string
-       
 
         Return the result as a JSON object with the required fields that are present in the email body.
         Do not use RAG or query_vector_tool.
+        Do not make any tool calls.
+        Only analyze the provided email text and extract the information directly from it.
+        If information is not found in the email, use "unclear" as the value.
             `,
-            maxSteps: 20,
-            maxTokens: 1000,
+            maxSteps: 1,
+            toolChoice: "none",
           }
         );
         const extractedDetails: ApplicantKeyDetails = extractJsonFromResult(
@@ -598,8 +600,8 @@ const analyseIncompleteApplications = createStep({
         return fromEmail === mail.userEmail;
       });
 
-      let attachment_filename = undefined;
-      let attachmentId = undefined;
+      let attachment_filename: string[] = [];
+      let attachmentId: string[] = [];
       let candidateThreadMailBodies = undefined;
 
       const resumeLink =
@@ -613,12 +615,12 @@ const analyseIncompleteApplications = createStep({
           .pop() || "";
 
       for (let message of candidateMessages) {
-        const attachmentFilename = message.payload?.parts
+        const messageAttachmentFilenames = message.payload?.parts
           ?.filter((p) => p.filename)
-          .map((p) => p.filename);
-        const attachment_Id = message.payload?.parts
+          .map((p) => p.filename) || [];
+        const messageAttachmentIds = message.payload?.parts
           ?.filter((p) => p.body?.attachmentId)
-          .map((p) => p.body?.attachmentId);
+          .map((p) => p.body?.attachmentId) || [];
 
         const plainTextPart =
           message.payload?.parts
@@ -631,184 +633,197 @@ const analyseIncompleteApplications = createStep({
         candidateThreadMailBodies = decodedBody
           ? (candidateThreadMailBodies ?? "") + decodedBody
           : (candidateThreadMailBodies ?? "");
-
-        if (attachmentFilename) {
-          attachment_filename = attachmentFilename;
+          
+        // Collect attachment filenames from all messages
+        if (messageAttachmentFilenames && messageAttachmentFilenames.length > 0) {
+          const validFilenames = messageAttachmentFilenames.filter(
+            (filename): filename is string => filename !== null && filename !== undefined
+          );
+          attachment_filename = [...attachment_filename, ...validFilenames];
         }
-        if (attachment_Id) {
-          attachmentId = attachment_Id;
+        
+        // Collect attachment IDs from all messages
+        if (messageAttachmentIds && messageAttachmentIds.length > 0) {
+          const validAttachmentIds = messageAttachmentIds.filter(
+            (id): id is string => id !== null && id !== undefined
+          );
+          attachmentId = [...attachmentId, ...validAttachmentIds];
         }
       }
 
-      const hasCoverLetter =
-        (containsKeyword({
-          text: mail.body,
-          keywords: [
-            // classic openers / closers
-            "cover letter",
-            "dear hiring manager",
-            "dear sir or madam",
-            "dear team",
-            "dear recruiter",
-            "dear [company]",
-            "i am writing to",
-            "i am excited to apply",
-            "i am reaching out",
-            "i am interested in",
-            "thank you for considering",
-            "thank you for your time",
-            "sincerely yours",
-            "best regards",
 
-            // self-introduction / intent
-            "with x years of experience",
-            "with hands-on experience in",
-            "i bring to the table",
-            "i offer",
-            "i am eager to",
-            "i am passionate about",
-            "i am confident that",
-            "i would love the opportunity",
-            "i am looking forward to",
-            "contribute to your team",
-            "add value to your organization",
-            "aligns with my career goals",
+      const mailBodyKeywordsCheck = containsKeyword({
+        text: mail.body,
+        keywords: [
+          // classic openers / closers
+          "cover letter",
+          "dear hiring manager",
+          "dear sir or madam",
+          "dear team",
+          "dear recruiter",
+          "dear [company]",
+          "i am writing to",
+          "i am excited to apply",
+          "i am reaching out",
+          "i am interested in",
+          "thank you for considering",
+          "thank you for your time",
+          "sincerely yours",
+          "best regards",
 
-            // skill highlights
-            "proficient in",
-            "expertise in",
-            "skilled at",
-            "experience working with",
-            "experience includes",
-            "hands-on knowledge of",
-            "demonstrated ability in",
-            "proven track record",
-            "strong background in",
-            "solid understanding of",
+          // self-introduction / intent
+          "with x years of experience",
+          "with hands-on experience in",
+          "i bring to the table",
+          "i offer",
+          "i am eager to",
+          "i am passionate about",
+          "i am confident that",
+          "i would love the opportunity",
+          "i am looking forward to",
+          "contribute to your team",
+          "add value to your organization",
+          "aligns with my career goals",
 
-            // achievements & impact
-            "improved",
-            "increased",
-            "reduced",
-            "achieved",
-            "delivered",
-            "optimized",
-            "enhanced",
-            "streamlined",
-            "boosted",
-            "spearheaded",
-            "led the development",
-            "successfully launched",
-            "production-ready apps",
-            "real-world projects",
+          // skill highlights
+          "proficient in",
+          "expertise in",
+          "skilled at",
+          "experience working with",
+          "experience includes",
+          "hands-on knowledge of",
+          "demonstrated ability in",
+          "proven track record",
+          "strong background in",
+          "solid understanding of",
 
-            // soft skills
-            "team-oriented",
-            "detail-oriented",
-            "self-motivated",
-            "fast learner",
-            "adaptable",
-            "collaborative",
-            "multitask",
-            "problem-solving",
-            "critical thinking",
-            "communication skills",
+          // achievements & impact
+          "improved",
+          "increased",
+          "reduced",
+          "achieved",
+          "delivered",
+          "optimized",
+          "enhanced",
+          "streamlined",
+          "boosted",
+          "spearheaded",
+          "led the development",
+          "successfully launched",
+          "production-ready apps",
+          "real-world projects",
 
-            // company-centric phrases
-            "your company’s mission",
-            "your innovative projects",
-            "your dynamic environment",
-            "your development team",
-            "your engineering culture",
-            "your product roadmap",
-            "your commitment to excellence",
-          ],
-        }) ??
-          containsKeyword({
-            text: candidateThreadMailBodies ?? "",
-            keywords: [
-              // classic openers / closers
-              "cover letter",
-              "dear hiring manager",
-              "dear sir or madam",
-              "dear team",
-              "dear recruiter",
-              "dear [company]",
-              "i am writing to",
-              "i am excited to apply",
-              "i am reaching out",
-              "i am interested in",
-              "thank you for considering",
-              "thank you for your time",
-              "sincerely yours",
-              "best regards",
+          // soft skills
+          "team-oriented",
+          "detail-oriented",
+          "self-motivated",
+          "fast learner",
+          "adaptable",
+          "collaborative",
+          "multitask",
+          "problem-solving",
+          "critical thinking",
+          "communication skills",
 
-              // self-introduction / intent
-              "with x years of experience",
-              "with hands-on experience in",
-              "i bring to the table",
-              "i offer",
-              "i am eager to",
-              "i am passionate about",
-              "i am confident that",
-              "i would love the opportunity",
-              "i am looking forward to",
-              "contribute to your team",
-              "add value to your organization",
-              "aligns with my career goals",
+          // company-centric phrases
+          "your company's mission",
+          "your innovative projects",
+          "your dynamic environment",
+          "your development team",
+          "your engineering culture",
+          "your product roadmap",
+          "your commitment to excellence",
+        ],
+      });
+      
+      const threadBodyKeywordsCheck = containsKeyword({
+        text: candidateThreadMailBodies ?? "",
+        keywords: [
+          // classic openers / closers
+          "cover letter",
+          "dear hiring manager",
+          "dear sir or madam",
+          "dear team",
+          "dear recruiter",
+          "dear [company]",
+          "i am writing to",
+          "i am excited to apply",
+          "i am reaching out",
+          "i am interested in",
+          "thank you for considering",
+          "thank you for your time",
+          "sincerely yours",
+          "best regards",
 
-              // skill highlights
-              "proficient in",
-              "expertise in",
-              "skilled at",
-              "experience working with",
-              "experience includes",
-              "hands-on knowledge of",
-              "demonstrated ability in",
-              "proven track record",
-              "strong background in",
-              "solid understanding of",
+          // self-introduction / intent
+          "with x years of experience",
+          "with hands-on experience in",
+          "i bring to the table",
+          "i offer",
+          "i am eager to",
+          "i am passionate about",
+          "i am confident that",
+          "i would love the opportunity",
+          "i am looking forward to",
+          "contribute to your team",
+          "add value to your organization",
+          "aligns with my career goals",
 
-              // achievements & impact
-              "improved",
-              "increased",
-              "reduced",
-              "achieved",
-              "delivered",
-              "optimized",
-              "enhanced",
-              "streamlined",
-              "boosted",
-              "spearheaded",
-              "led the development",
-              "successfully launched",
-              "production-ready apps",
-              "real-world projects",
+          // skill highlights
+          "proficient in",
+          "expertise in",
+          "skilled at",
+          "experience working with",
+          "experience includes",
+          "hands-on knowledge of",
+          "demonstrated ability in",
+          "proven track record",
+          "strong background in",
+          "solid understanding of",
 
-              // soft skills
-              "team-oriented",
-              "detail-oriented",
-              "self-motivated",
-              "fast learner",
-              "adaptable",
-              "collaborative",
-              "multitask",
-              "problem-solving",
-              "critical thinking",
-              "communication skills",
+          // achievements & impact
+          "improved",
+          "increased",
+          "reduced",
+          "achieved",
+          "delivered",
+          "optimized",
+          "enhanced",
+          "streamlined",
+          "boosted",
+          "spearheaded",
+          "led the development",
+          "successfully launched",
+          "production-ready apps",
+          "real-world projects",
 
-              // company-centric phrases
-              "your company’s mission",
-              "your innovative projects",
-              "your dynamic environment",
-              "your development team",
-              "your engineering culture",
-              "your product roadmap",
-              "your commitment to excellence",
-            ],
-          })) &&
-        mail.body.length >= 300 &&
-        mail.body.trim().split(/\s+/).length >= 50;
+          // soft skills
+          "team-oriented",
+          "detail-oriented",
+          "self-motivated",
+          "fast learner",
+          "adaptable",
+          "collaborative",
+          "multitask",
+          "problem-solving",
+          "critical thinking",
+          "communication skills",
+
+          // company-centric phrases
+          "your company's mission",
+          "your innovative projects",
+          "your dynamic environment",
+          "your development team",
+          "your engineering culture",
+          "your product roadmap",
+          "your commitment to excellence",
+        ],
+      });
+      
+      const bodyLengthCheck = mail.body.length >= 300;
+      const wordCountCheck = mail.body.trim().split(/\s+/).length >= 50;
+      
+      const hasCoverLetter = (mailBodyKeywordsCheck ?? threadBodyKeywordsCheck) && bodyLengthCheck && wordCountCheck;
 
       const hasResume =
         attachmentId &&
@@ -817,7 +832,7 @@ const analyseIncompleteApplications = createStep({
         attachment_filename?.length
           ? containsKeyword({
               text: attachment_filename?.join(" ") || "",
-              keywords: ["resume", "cv"],
+              keywords: ["resume", "cv", "-resume", "-cv"],
             }) ||
             containsKeyword({
               text: mail.body || "",
@@ -910,44 +925,46 @@ const analyseIncompleteApplications = createStep({
           "Extract job application details from emails with varying structures",
           {
             instructions: `
-You are a job-application parser.  
-Input variables:  
-- SUBJECT: ${mail.subject?.trim()}  
-- BODY: ${mail.body.trim()}  
+You are a job-application parser.
+Input variables:
+- SUBJECT: ${mail.subject?.trim()}
+- BODY: ${mail.body.trim()}
 - HINT_TITLE: ${potentialJobTitle ? `'${potentialJobTitle}'` : "None"}
 
-Return **only** valid JSON:  
+Return **only** valid JSON:
 { "job_title": "<title>", "experience_status": "<status>", "category": "<category>" }
 
-1. JOB_TITLE  
-   a. Patterns (stop at first hit):  
-      • ^Application for (.+?)(?:\\s*\\(|\\s*Role|$)  
-      • New application received for the position of (.+?)(?:\\s*\\[|\\s*at|$)  
-      • Job Opening: (.+?)(?:\\s*\\[|\\s*at|$)  
-      • applying for the (.+?) role|position  
-      • interest in any suitable (.+?) opportunities  
-   b. Clean: trim; drop everything from '(' or '[' onward.  
-   c. Fallback: if no match →  
-      • extract last word before "developer", "engineer", "programmer", "designer", etc.  
-      • else use HINT_TITLE if it appears verbatim in body.  
+1. JOB_TITLE
+   a. Patterns (stop at first hit):
+      • ^Application for (.+?)(?:\\s*\\(|\\s*Role|$)
+      • New application received for the position of (.+?)(?:\\s*\\[|\\s*at|$)
+      • Job Opening: (.+?)(?:\\s*\\[|\\s*at|$)
+      • applying for the (.+?) role|position
+      • interest in any suitable (.+?) opportunities
+   b. Clean: trim; drop everything from '(' or '[' onward.
+   c. Fallback: if no match →
+      • extract last word before "developer", "engineer", "programmer", "designer", etc.
+      • else use HINT_TITLE if it appears verbatim in body.
 
-2. EXPERIENCE_STATUS  
-   • "experienced" if regex matches:  
-     \\b(?:\\d+(?:\\.\\d+)?)\\s*(?:\\+|years?)\\b  OR  \\bbuilt \\d+ apps?\\b  OR  \\bthroughout my career\\b  
-   • "fresher" if “recent graduate”, “intern”, “entry-level” appear and no numeric years.  
+2. EXPERIENCE_STATUS
+   • "experienced" if regex matches:
+     \\b(?:\\d+(?:\\.\\d+)?)\\s*(?:\\+|years?)\\b  OR  \\bbuilt \\d+ apps?\\b  OR  \\bthroughout my career\\b
+   • "fresher" if "recent graduate", "intern", "entry-level" appear and no numeric years.
    • else "unclear".
 
-3. CATEGORY  
-   • "Developer" if title OR body contains: developer, engineer, programmer, flutter, react, backend, frontend, full-stack, node, laravel, php, mobile, app, software.  
-   • "Web Designer" for designer, ui/ux, web design.  
-   • "Recruiter" for recruiter, hr, talent acquisition.  
-   • "Sales/Marketing" for sales, marketing, business development.  
+3. CATEGORY
+   • "Developer" if title OR body contains: developer, engineer, programmer, flutter, react, backend, frontend, full-stack, node, laravel, php, mobile, app, software.
+   • "Web Designer" for designer, ui/ux, web design.
+   • "Recruiter" for recruiter, hr, talent acquisition.
+   • "Sales/Marketing" for sales, marketing, business development.
    • else "unclear".
 
 Return **only** the JSON object—no explanation.
+Do not make any tool calls.
+Only analyze the provided text and extract the information directly from it.
 `,
-            maxSteps: 10,
-            maxTokens: 100,
+            maxSteps: 1,
+            toolChoice: "none",
           }
         );
         const generatedResult: {
@@ -1345,8 +1362,6 @@ Return ONLY an array of question objects, e.g.:
                 : {};
             const reply = await agent.generate(prompt, {
               instructions: node.instructions,
-              maxTokens: 1000,
-              temperature: 0,
               toolChoice: "none",
               toolsets: selectedToolSets,
             });
@@ -1363,23 +1378,26 @@ Return ONLY an array of question objects, e.g.:
               templateId: "templates-pre-questionnaire-details",
               customItems: questions,
             });
+
+            console.log("Customized template:", customizedTemplate);
+
             if (!customizedTemplate) {
               throw new Error("Failed to customize template");
             }
 
-            await sendCustomizeThreadReplyEmail({
-              name: mail.name || "User",
-              position: mail.keyDetails?.position || "unclear",
-              userEmail: mail.userEmail,
-              subject: mail.subject,
-              threadId: mail.threadId,
-              emailId: mail.id,
-              inReplyTo: mail.messageId,
-              references: [mail.messageId],
-              addLabelIds: ["Stage1 Pre-Questionnaire"],
-              removeLabelIds: ["Stage1 Interview"],
-              templateMailBody: customizedTemplate,
-            });
+            // await sendCustomizeThreadReplyEmail({
+            //   name: mail.name || "User",
+            //   position: mail.keyDetails?.position || "unclear",
+            //   userEmail: mail.userEmail,
+            //   subject: mail.subject,
+            //   threadId: mail.threadId,
+            //   emailId: mail.id,
+            //   inReplyTo: mail.messageId,
+            //   references: [mail.messageId],
+            //   addLabelIds: ["Stage1 Pre-Questionnaire"],
+            //   removeLabelIds: ["Stage1 Interview"],
+            //   templateMailBody: customizedTemplate,
+            // });
           } catch (error) {
             if (error instanceof SyntaxError) {
               console.error(

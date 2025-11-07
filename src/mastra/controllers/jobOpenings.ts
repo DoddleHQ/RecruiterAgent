@@ -3,11 +3,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import * as fs from "fs";
 import z from "zod";
-import { mastra } from "..";
 import { MDocument } from "@mastra/rag";
 import crypto from "crypto";
 import { vectorStore } from "../../vectorDB/connection";
 import { env } from "../../utils/config";
+import { contextQAAgent as ragAgent } from "../agents/contextQA-agent";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const jobOpeningsDir = path.resolve(dirname, "../../src/mastra/job-openings");
@@ -155,7 +155,6 @@ export const deleteJobOpening = async (req: Request, res: Response) => {
     try {
       const jobOpeningPath = path.join(jobOpeningsDir, `${jobId}.json`);
 
-      const ragAgent = mastra.getAgent("contextQAAgent");
 
       if (!ragAgent) throw Error("RAG agent not found");
 
@@ -164,7 +163,6 @@ export const deleteJobOpening = async (req: Request, res: Response) => {
         {
           instructions: `Use the rag_query_documents tool to confirm the document presence by querying its content.`,
           maxSteps: 5,
-          maxTokens: 400,
         }
       );
 
@@ -173,16 +171,18 @@ export const deleteJobOpening = async (req: Request, res: Response) => {
         {
           instructions: `You must use the rag_remove_document tool to remove the document located at: ${jobOpeningPath}. Only use this tool and confirm the removal.`,
           maxSteps: 5,
-          maxTokens: 400,
         }
       );
       console.log("RAG remove document result:", ragRemoveDocumentResult.text);
 
       if (ragRemoveDocumentResult.text) {
         fs.rmSync(jobOpeningPath);
+        res.json({ message: "Job opening deleted successfully" });
+        return;
+      } else {
+        res.json({ message: "Job opening not found" });
+        return;
       }
-      res.json({ message: "Job opening deleted successfully" });
-      return;
     } catch (err) {
       console.log(err);
       res.json({ error: "Error occured while deleting job opening" });

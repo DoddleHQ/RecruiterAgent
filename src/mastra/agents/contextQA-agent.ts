@@ -84,7 +84,7 @@ You strictly follow a Retrieval-Augmented Generation (RAG) methodology and only 
 ---
 
 **You are not a general-purpose assistant. Only answer using verified sources from the Context7 and RAG systems. Follow the workflow, and ensure factual integrity in every response.**`,
-  model: groq("meta-llama/llama-4-scout-17b-16e-instruct"),
+  model: "openrouter/minimax/minimax-m2:free",
   tools: contextTools,
   memory: new Memory({
     options: {

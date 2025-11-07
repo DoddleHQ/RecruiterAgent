@@ -203,6 +203,24 @@ export const containsKeyword = ({
       const windowWords = lower.slice(start, end).split(/\s+/).length;
       return windowWords >= minWordWindow;
     }
+    if (kw === "resume" || kw === "cv") {
+      const hyphenatedPatterns = [
+        `-${kw}`,
+        `${kw}-`,
+        `.${kw}`,
+        `${kw}.`,
+        `_resume`,
+        `resume_`,
+        `_cv`,
+        `cv_`
+      ];
+      
+      for (const pattern of hyphenatedPatterns) {
+        if (lower.includes(pattern)) {
+          return true;
+        }
+      }
+    }
 
     return false;
   });
