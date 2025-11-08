@@ -570,7 +570,6 @@ Return **only** valid JSON:
 Return **only** the JSON object—no explanation.
 `,
             maxSteps: 10,
-            maxTokens: 100,
           }
         );
         const generatedResult: {
