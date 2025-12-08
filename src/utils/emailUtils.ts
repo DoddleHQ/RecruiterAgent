@@ -82,7 +82,7 @@ export function findPotentialJobTitle({
         break;
       }
     }
-  }  
+  }
   return jobTitle || "";
 }
 
@@ -103,6 +103,13 @@ export function fastParseEmail(subject: string, body: string): FastParseResult {
       /^I'm interested in (.+?)(?:\s+Role|\s+Position|$)/i,
       /^Applying for the post of (.+)$/i,
       /^Application for (.+)$/i,
+      /^Looking for a (.+?) job role/i,
+      /^(.+?) - Immediate Joiner/i,
+      /^(.+?) – Immediate Joiner/i,
+      /^I am (.+?)(?:$| -)/i,
+      /^(.+?) Developer$/i,
+      /^(.+?) Engineer$/i,
+      /^(.+?) Designer$/i,
     ];
 
     for (const pattern of subjectPatterns) {
@@ -189,6 +196,19 @@ export function fastParseEmail(subject: string, body: string): FastParseResult {
 
   if (!jobTitle) return null;
 
+  const { experience_status, category } = classifyJobProfile(jobTitle, text);
+
+  return {
+    job_title: jobTitle.trim(),
+    experience_status,
+    category,
+  };
+}
+
+export function classifyJobProfile(
+  jobTitle: string,
+  text: string
+): { experience_status: "experienced" | "fresher" | "unclear"; category: string } {
   let expStatus: "experienced" | "fresher" | "unclear" = "unclear";
 
   const experiencePatterns = [
@@ -265,11 +285,7 @@ export function fastParseEmail(subject: string, body: string): FastParseResult {
     }
   }
 
-  return {
-    job_title: jobTitle.trim(),
-    experience_status: expStatus,
-    category,
-  };
+  return { experience_status: expStatus, category };
 }
 
 interface DetailedCandidateInfo {

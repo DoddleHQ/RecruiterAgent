@@ -10,7 +10,8 @@ import {
   sendThreadReplyEmail,
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
-import { fastParseEmail, findPotentialJobTitle } from "../../utils/emailUtils";
+import { findPotentialJobTitle } from "../../utils/emailUtils";
+import { extractJobApplication } from "../../utils/smartExtract";
 import { env } from "../../utils/config";
 
 const recruitmentMail = env.RECRUITMENT_MAIL;
@@ -257,6 +258,16 @@ const extractEmailMetaData = createStep({
         "candidate for",
         "looking for job",
         "seeking opportunity",
+        "developer",
+        "devops",
+        "engineer",
+        "designer",
+        "consultant",
+        "analyst",
+        "manager",
+        "specialist",
+        "intern",
+        "fresher",
       ];
 
       const irrelevantSubjectKeywords = [
@@ -383,148 +394,140 @@ const extractEmailMetaData = createStep({
       const hasCoverLetter = isCoverLetterAIGenerated
         ? false
         : containsKeyword({
-            text: decodedBody,
-            keywords: [
-              // classic openers / closers
-              "cover letter",
-              "dear hiring manager",
-              "dear sir or madam",
-              "dear team",
-              "dear recruiter",
-              "dear [company]",
-              "i am writing to",
-              "i am excited to apply",
-              "i am reaching out",
-              "i am interested in",
-              "thank you for considering",
-              "thank you for your time",
-              "sincerely yours",
-              "best regards",
+          text: decodedBody,
+          keywords: [
+            // classic openers / closers
+            "cover letter",
+            "dear hiring manager",
+            "dear sir or madam",
+            "dear team",
+            "dear recruiter",
+            "dear [company]",
+            "i am writing to",
+            "i am excited to apply",
+            "i am reaching out",
+            "i am interested in",
+            "thank you for considering",
+            "thank you for your time",
+            "sincerely yours",
+            "best regards",
 
-              // self-introduction / intent
-              "with x years of experience",
-              "with hands-on experience in",
-              "i bring to the table",
-              "i offer",
-              "i am eager to",
-              "i am passionate about",
-              "i am confident that",
-              "i would love the opportunity",
-              "i am looking forward to",
-              "contribute to your team",
-              "add value to your organization",
-              "aligns with my career goals",
+            // self-introduction / intent
+            "with x years of experience",
+            "with hands-on experience in",
+            "i bring to the table",
+            "i offer",
+            "i am eager to",
+            "i am passionate about",
+            "i am confident that",
+            "i would love the opportunity",
+            "i am looking forward to",
+            "contribute to your team",
+            "add value to your organization",
+            "aligns with my career goals",
 
-              // skill highlights
-              "proficient in",
-              "expertise in",
-              "skilled at",
-              "experience working with",
-              "experience includes",
-              "hands-on knowledge of",
-              "demonstrated ability in",
-              "proven track record",
-              "strong background in",
-              "solid understanding of",
+            // skill highlights
+            "proficient in",
+            "expertise in",
+            "skilled at",
+            "experience working with",
+            "experience includes",
+            "hands-on knowledge of",
+            "demonstrated ability in",
+            "proven track record",
+            "strong background in",
+            "solid understanding of",
 
-              // achievements & impact
-              "improved",
-              "increased",
-              "reduced",
-              "achieved",
-              "delivered",
-              "optimized",
-              "enhanced",
-              "streamlined",
-              "boosted",
-              "spearheaded",
-              "led the development",
-              "successfully launched",
-              "production-ready apps",
-              "real-world projects",
+            // achievements & impact
+            "improved",
+            "increased",
+            "reduced",
+            "achieved",
+            "delivered",
+            "optimized",
+            "enhanced",
+            "streamlined",
+            "boosted",
+            "spearheaded",
+            "led the development",
+            "successfully launched",
+            "production-ready apps",
+            "real-world projects",
 
-              // soft skills
-              "team-oriented",
-              "detail-oriented",
-              "self-motivated",
-              "fast learner",
-              "adaptable",
-              "collaborative",
-              "multitask",
-              "problem-solving",
-              "critical thinking",
-              "communication skills",
+            // soft skills
+            "team-oriented",
+            "detail-oriented",
+            "self-motivated",
+            "fast learner",
+            "adaptable",
+            "collaborative",
+            "multitask",
+            "problem-solving",
+            "critical thinking",
+            "communication skills",
 
-              // company-centric phrases
-              "your company’s mission",
-              "your innovative projects",
-              "your dynamic environment",
-              "your development team",
-              "your engineering culture",
-              "your product roadmap",
-              "your commitment to excellence",
-            ],
-          }) &&
-          decodedBody.length >= 300 &&
-          decodedBody.trim().split(/\s+/).length >= 50;
+            // company-centric phrases
+            "your company’s mission",
+            "your innovative projects",
+            "your dynamic environment",
+            "your development team",
+            "your engineering culture",
+            "your product roadmap",
+            "your commitment to excellence",
+          ],
+        }) &&
+        decodedBody.length >= 300 &&
+        decodedBody.trim().split(/\s+/).length >= 50;
 
       const hasResume =
         attachmentId?.length && attachment_filename?.length
           ? containsKeyword({
-              text: attachment_filename?.[0] || "",
-              keywords: ["resume", "cv"],
-            }) ||
-            containsKeyword({
-              text: decodedBody || "",
-              keywords: [
-                "resume",
-                "Resume",
-                "resume attached",
-                "cv attached",
-                "please find my resume",
-                "attached is my resume",
-                "attached my resume",
-                "resume:",
-                "Resume:",
-              ],
-            }) ||
-            containsKeyword({
-              text: decodedBody || "",
-              keywords: ["resume", "Resume", "cv", "CV"],
-            })
+            text: attachment_filename?.[0] || "",
+            keywords: ["resume", "cv", "cover letter"],
+          }) ||
+          containsKeyword({
+            text: decodedBody || "",
+            keywords: [
+              "resume",
+              "Resume",
+              "resume attached",
+              "cv attached",
+              "please find my resume",
+              "attached is my resume",
+              "attached my resume",
+              "resume:",
+              "Resume:",
+            ],
+          }) ||
+          containsKeyword({
+            text: decodedBody || "",
+            keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
+          })
           : containsKeyword({
-              text: decodedBody || "",
-              keywords: ["resume", "Resume", "cv", "CV"],
-            });
+            text: decodedBody || "",
+            keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
+          });
 
       const potentialJobTitle = findPotentialJobTitle({
         subject: subject ?? "",
         body: decodedBody,
       });
 
-      const fastResult = fastParseEmail(subject ?? "", decodedBody);
+      try {
+        const extraction = await extractJobApplication(subject ?? "", decodedBody);
 
-      if (
-        fastResult &&
-        Object.keys(fastResult).length > 0 &&
-        fastResult.category &&
-        fastResult.category !== "unclear"
-      ) {
-        return {
-          ...emailMetaData,
-          hasCoverLetter,
-          hasResume,
-          position:
-            (potentialJobTitle ?? fastResult?.job_title)?.trim().slice(0, 50) ||
-            (potentialJobTitle?.length > 50 ||
-            fastResult?.job_title?.length > 50
-              ? "unclear"
-              : (potentialJobTitle ?? fastResult?.job_title)
-                  ?.trim()
-                  .slice(0, 50) || "unclear"),
-          category: fastResult.category || "unclear",
-          experienceStatus: fastResult.experience_status || "unclear",
-        };
+        if (extraction.category !== "unclear" && extraction.jobTitle !== "unclear") {
+          return {
+            ...emailMetaData,
+            hasCoverLetter,
+            hasResume,
+            position: extraction.jobTitle.trim().slice(0, 50),
+            category: extraction.category,
+            experienceStatus: extraction.experienceStatus,
+          };
+        }
+      } catch (err) {
+        console.error("Transformer extraction failed, falling back to LLM:", err);
       }
 
       try {
@@ -853,7 +856,7 @@ const sendConfirmationEmail = createStep({
         case "Developer":
           const templateId =
             mail.experienceStatus === "experienced" ||
-            mail.experienceStatus === "unclear"
+              mail.experienceStatus === "unclear"
               ? "templates-request_key_details-developer-experienced"
               : mail.experienceStatus === "fresher"
                 ? "templates-request_key_details-developer-fresher"

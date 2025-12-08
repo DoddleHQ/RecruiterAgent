@@ -52,6 +52,21 @@ export const mastra = new Mastra({
     name: "Mastra",
     level: "info",
   }),
+  bundler: {
+    externals: [
+      "ioredis",
+      "onnxruntime-node",
+      "@xenova/transformers",
+      "puppeteer",
+      "express",
+      "cors",
+      "googleapis",
+      "mammoth",
+      "unpdf",
+      "node-cron",
+      "cheerio",
+    ],
+  },
 });
 
 app.get("/", (req, res) => {

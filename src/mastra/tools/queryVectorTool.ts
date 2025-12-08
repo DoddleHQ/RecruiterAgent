@@ -1,7 +1,7 @@
 import { createTool } from "@mastra/core";
 import z from "zod";
 import { vectorStore } from "../../vectorDB/connection";
-import { env } from "../../utils/config";
+import { getEmbedding } from "../../utils/embeddings";
 
 export const queryVectorTool = createTool({
   id: "query-vector",
@@ -21,29 +21,12 @@ export const queryVectorTool = createTool({
       throw new Error("No query provided");
     }
 
-    if(!env.OLLAMA_BASE_URL){
-      throw new Error("OLLAMA_BASE_URL environment variable is not set");
-    }
-
     try {
-      const response = await fetch(`${env.OLLAMA_BASE_URL}/api/embed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "nomic-embed-text",
-          input: query,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error: ${response.statusText}`);
-      }
-
-      const { embeddings } = await response.json();
+      const embedding = await getEmbedding(query);
 
       const results = await vectorStore.query({
         indexName: "job-openings",
-        queryVector: embeddings[0],
+        queryVector: embedding,
         topK: Number(limit),
       });
       return results;

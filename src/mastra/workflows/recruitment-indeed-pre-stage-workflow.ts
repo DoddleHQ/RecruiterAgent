@@ -9,7 +9,7 @@ import {
   sendThreadReplyEmail,
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
-import { fastParseEmail, findPotentialJobTitle } from "../../utils/emailUtils";
+import { extractJobApplication } from "../../utils/smartExtract";
 import * as cheerio from "cheerio";
 import { env } from "../../utils/config";
 
@@ -267,6 +267,17 @@ const extractEmailMetaData = createStep({
         "candidate for",
         "looking for job",
         "seeking opportunity",
+        "new message from",
+        "developer",
+        "devops",
+        "engineer",
+        "designer",
+        "consultant",
+        "analyst",
+        "manager",
+        "specialist",
+        "intern",
+        "fresher",
       ];
 
       const irrelevantSubjectKeywords = [
@@ -317,72 +328,28 @@ const extractEmailMetaData = createStep({
 
       const hasResume = resumeLink ? true : false;
 
-      const potentialJobTitle = findPotentialJobTitle({
-        subject: subject ?? "",
-        body: decodedBody,
-      });
+      try {
+        const extraction = await extractJobApplication(subject ?? "", decodedBody);
 
-      let potentialCategory = "unclear";
-
-      //   if (experiencePatterns.some((pattern) => pattern.test(resumeText))) {
-      //     potientialExperienceStatus = "experienced";
-      //   } else if (fresherPatterns.some((pattern) => pattern.test(resumeText))) {
-      //     potientialExperienceStatus = "fresher";
-      //   }
-
-      const categoryKeywords = {
-        Recruiter: ["recruiter", "hr", "talent acquisition", "it recruitment"],
-        Developer: [
-          "developer",
-          "engineer",
-          "programmer",
-          "flutter",
-          "react",
-          "react js",
-          "backend",
-          "frontend",
-          "full.stack",
-          "node",
-          "laravel",
-          "php",
-          "mobile",
-          "app",
-          "software",
-          "javascript",
-          "js",
-          "python",
-          "devops",
-        ],
-        "Web Designer": ["designer", "ui/ux", "web design"],
-        "Sales/Marketing": ["sales", "marketing", "business development"],
-      };
-
-      for (const [cat, keywords] of Object.entries(categoryKeywords)) {
-        if (
-          keywords.some(
-            (k) => potentialJobTitle ?? "".toLowerCase().includes(k)
-          )
-        ) {
-          potentialCategory = cat;
-          break;
+        if (extraction.category !== "unclear" && extraction.jobTitle !== "unclear") {
+          return {
+            ...emailMetaData,
+            hasResume,
+            position: extraction.jobTitle.trim().slice(0, 50),
+            category: extraction.category,
+            experienceStatus: extraction.experienceStatus,
+          };
         }
+      } catch (err) {
+        console.error("Transformer extraction failed:", err);
       }
 
-      const fastResult = fastParseEmail(subject ?? "", decodedBody);
-      
       return {
         ...emailMetaData,
         hasResume,
-        position:
-          (potentialJobTitle ?? fastResult?.job_title)?.trim().slice(0, 50) ||
-          (potentialJobTitle?.length > 50 ||
-          (fastResult?.job_title ?? "").length > 50
-            ? "unclear"
-            : (potentialJobTitle ?? fastResult?.job_title)
-                ?.trim()
-                .slice(0, 50) || "unclear"),
-        category: fastResult?.category ?? potentialCategory ?? "unclear",
-        experienceStatus: fastResult?.experience_status || "unclear",
+        position: "unclear",
+        category: "unclear",
+        experienceStatus: "unclear",
       };
     } catch (err) {
       console.log("Error occured while extracting details from email", err);
@@ -593,7 +560,7 @@ const sendConfirmationEmail = createStep({
         case "Developer":
           const templateId =
             mail.experienceStatus === "experienced" ||
-            mail.experienceStatus === "unclear"
+              mail.experienceStatus === "unclear"
               ? "templates-request_key_details-developer-experienced"
               : mail.experienceStatus === "fresher"
                 ? "templates-request_key_details-developer-fresher"
@@ -709,27 +676,27 @@ const recruitmentIndeedPreStageWorkflow = createWorkflow({
   .foreach(deduplicateNewlyArrivedMails)
   .foreach(extractEmailMetaData)
   .then(sortEmailData)
-  .branch([
-    [
-      async ({ inputData: { missingResumeEmails } }) =>
-        missingResumeEmails.length > 0,
-      sendResumeMissingMail,
-    ],
-    [
-      async ({ inputData: { unclearPositionEmails } }) =>
-        unclearPositionEmails.length > 0,
-      sendUnclearPositionEmail,
-    ],
-    [
-      async ({ inputData: { multipleMissingDetailsEmails } }) =>
-        multipleMissingDetailsEmails.length > 0,
-      sendMultipleRejectionReasonsMail,
-    ],
-    [
-      async ({ inputData: { confirmEmails } }) => confirmEmails.length > 0,
-      sendConfirmationEmail,
-    ],
-  ]);
+.branch([
+  [
+    async ({ inputData: { missingResumeEmails } }) =>
+      missingResumeEmails.length > 0,
+    sendResumeMissingMail,
+  ],
+  [
+    async ({ inputData: { unclearPositionEmails } }) =>
+      unclearPositionEmails.length > 0,
+    sendUnclearPositionEmail,
+  ],
+  [
+    async ({ inputData: { multipleMissingDetailsEmails } }) =>
+      multipleMissingDetailsEmails.length > 0,
+    sendMultipleRejectionReasonsMail,
+  ],
+  [
+    async ({ inputData: { confirmEmails } }) => confirmEmails.length > 0,
+    sendConfirmationEmail,
+  ],
+]);
 
 recruitmentIndeedPreStageWorkflow.commit();
 

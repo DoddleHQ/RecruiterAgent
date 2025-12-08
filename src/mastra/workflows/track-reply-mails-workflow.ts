@@ -22,9 +22,8 @@ import { decodeEmailBody } from "../../utils/gmail";
 import {
   extractDetailedCandidateInfo,
   extractTextFromAttachment,
-  fastParseEmail,
-  findPotentialJobTitle,
 } from "../../utils/emailUtils";
+import { extractJobApplication } from "../../utils/smartExtract";
 import { context7Mcp } from "../mcpservers/context7";
 import { queryVectorTool } from "../tools/queryVectorTool";
 
@@ -471,9 +470,9 @@ const analyseApplicants = createStep({
 
       const missingKeyDetails = fastExtractedDetails
         ? Object.entries(fastExtractedDetails).some(([key, value]) => {
-            const requiredFields = ["position", "workExp"];
-            return requiredFields.includes(key) && value === "unclear";
-          })
+          const requiredFields = ["position", "workExp"];
+          return requiredFields.includes(key) && value === "unclear";
+        })
         : true;
 
       if (!missingKeyDetails && fastExtractedDetails) {
@@ -511,8 +510,8 @@ const analyseApplicants = createStep({
 
         const missingKeyDetails = extractedDetails
           ? Object.values(extractedDetails).some(
-              (value) => value === "Not Provided" || value === "unclear"
-            )
+            (value) => value === "Not Provided" || value === "unclear"
+          )
           : true;
 
         if (missingKeyDetails) {
@@ -633,7 +632,7 @@ const analyseIncompleteApplications = createStep({
         candidateThreadMailBodies = decodedBody
           ? (candidateThreadMailBodies ?? "") + decodedBody
           : (candidateThreadMailBodies ?? "");
-          
+
         // Collect attachment filenames from all messages
         if (messageAttachmentFilenames && messageAttachmentFilenames.length > 0) {
           const validFilenames = messageAttachmentFilenames.filter(
@@ -641,7 +640,7 @@ const analyseIncompleteApplications = createStep({
           );
           attachment_filename = [...attachment_filename, ...validFilenames];
         }
-        
+
         // Collect attachment IDs from all messages
         if (messageAttachmentIds && messageAttachmentIds.length > 0) {
           const validAttachmentIds = messageAttachmentIds.filter(
@@ -735,7 +734,7 @@ const analyseIncompleteApplications = createStep({
           "your commitment to excellence",
         ],
       });
-      
+
       const threadBodyKeywordsCheck = containsKeyword({
         text: candidateThreadMailBodies ?? "",
         keywords: [
@@ -819,45 +818,45 @@ const analyseIncompleteApplications = createStep({
           "your commitment to excellence",
         ],
       });
-      
+
       const bodyLengthCheck = mail.body.length >= 300;
       const wordCountCheck = mail.body.trim().split(/\s+/).length >= 50;
-      
+
       const hasCoverLetter = (mailBodyKeywordsCheck ?? threadBodyKeywordsCheck) && bodyLengthCheck && wordCountCheck;
 
       const hasResume =
         attachmentId &&
-        attachmentId?.length &&
-        attachment_filename &&
-        attachment_filename?.length
+          attachmentId?.length &&
+          attachment_filename &&
+          attachment_filename?.length
           ? containsKeyword({
-              text: attachment_filename?.join(" ") || "",
-              keywords: ["resume", "cv", "-resume", "-cv"],
-            }) ||
-            containsKeyword({
-              text: mail.body || "",
-              keywords: [
-                "resume",
-                "Resume",
-                "resume attached",
-                "cv attached",
-                "please find my resume",
-                "attached is my resume",
-                "attached my resume",
-                "resume:",
-                "Resume:",
-              ],
-            }) ||
-            containsKeyword({
-              text: mail.body || "",
-              keywords: ["resume", "Resume", "cv", "CV"],
-            })
+            text: attachment_filename?.join(" ") || "",
+            keywords: ["resume", "cv", "cover letter", "-resume", "-cv"],
+          }) ||
+          containsKeyword({
+            text: mail.body || "",
+            keywords: [
+              "resume",
+              "Resume",
+              "resume attached",
+              "cv attached",
+              "please find my resume",
+              "attached is my resume",
+              "attached my resume",
+              "resume:",
+              "Resume:",
+            ],
+          }) ||
+          containsKeyword({
+            text: mail.body || "",
+            keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
+          })
           : resumeLink
             ? true
             : containsKeyword({
-                text: mail.body || "",
-                keywords: ["resume", "Resume", "cv", "CV"],
-              });
+              text: mail.body || "",
+              keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
+            });
 
       const emailMetaData = {
         id: mail.id,
@@ -883,33 +882,20 @@ const analyseIncompleteApplications = createStep({
         continue;
       }
 
-      const potentialJobTitle = findPotentialJobTitle({
-        subject: mail.subject,
-        body: mail.body,
-      });
+      try {
+        const extraction = await extractJobApplication(mail.subject, mail.body);
 
-      const fastResult = fastParseEmail(mail.subject, mail.body);
-
-      if (
-        fastResult &&
-        Object.keys(fastResult).length > 0 &&
-        fastResult.category &&
-        fastResult.category !== "unclear"
-      ) {
-        applicantsData.push({
-          ...emailMetaData,
-          job_title:
-            (potentialJobTitle ?? fastResult?.job_title)?.trim().slice(0, 50) ||
-            (potentialJobTitle?.length > 50 ||
-            fastResult?.job_title?.length > 50
-              ? "unclear"
-              : (potentialJobTitle ?? fastResult?.job_title)
-                  ?.trim()
-                  .slice(0, 50) || "unclear"),
-          category: fastResult.category || "unclear",
-          experience_status: fastResult.experience_status || "unclear",
-        });
-        continue;
+        if (extraction.category !== "unclear" && extraction.jobTitle !== "unclear") {
+          applicantsData.push({
+            ...emailMetaData,
+            job_title: extraction.jobTitle.trim().slice(0, 50),
+            category: extraction.category,
+            experience_status: extraction.experienceStatus,
+          });
+          continue;
+        }
+      } catch (err) {
+        console.error("Transformer extraction failed:", err);
       }
 
       try {
@@ -929,7 +915,6 @@ You are a job-application parser.
 Input variables:
 - SUBJECT: ${mail.subject?.trim()}
 - BODY: ${mail.body.trim()}
-- HINT_TITLE: ${potentialJobTitle ? `'${potentialJobTitle}'` : "None"}
 
 Return **only** valid JSON:
 { "job_title": "<title>", "experience_status": "<status>", "category": "<category>" }
@@ -942,9 +927,7 @@ Return **only** valid JSON:
       • applying for the (.+?) role|position
       • interest in any suitable (.+?) opportunities
    b. Clean: trim; drop everything from '(' or '[' onward.
-   c. Fallback: if no match →
-      • extract last word before "developer", "engineer", "programmer", "designer", etc.
-      • else use HINT_TITLE if it appears verbatim in body.
+   c. Fallback: extract phrase before "developer", "engineer", "programmer", "designer", etc.
 
 2. EXPERIENCE_STATUS
    • "experienced" if regex matches:
@@ -1110,7 +1093,7 @@ const migrateApplicantsWithKeyDetails = createStep({
           .filter((p) =>
             containsKeyword({
               text: p.filename || "",
-              keywords: ["resume", "Resume", "cv", "CV"],
+              keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
             })
           )
           .map((p) => ({
@@ -1346,6 +1329,7 @@ Return ONLY an array of question objects, e.g.:
 
           let lastResult: string = "{}";
           for (const node of promptChain) {
+            console.log(`[migrateApplicantsWithKeyDetails] Executing step: ${node.step}`);
             const prompt = node.prompt.replace("{{LAST_RESULT}}", lastResult);
 
             const isContext7ToolRequired = node.tools.some((tool) =>
@@ -1355,14 +1339,17 @@ Return ONLY an array of question objects, e.g.:
             const isQueryVectorToolRequired =
               node.tools.includes("query-vector");
 
+            const hasTools = node.tools && node.tools.length > 0;
+
             const selectedToolSets = isContext7ToolRequired
               ? await context7Mcp.getToolsets()
               : isQueryVectorToolRequired
                 ? { queryVector: { tool: queryVectorTool } }
                 : {};
+
             const reply = await agent.generate(prompt, {
               instructions: node.instructions,
-              toolChoice: "none",
+              toolChoice: hasTools ? "auto" : "none",
               toolsets: selectedToolSets,
             });
             lastResult = reply.text;

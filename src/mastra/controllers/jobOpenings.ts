@@ -6,8 +6,8 @@ import z from "zod";
 import { MDocument } from "@mastra/rag";
 import crypto from "crypto";
 import { vectorStore } from "../../vectorDB/connection";
-import { env } from "../../utils/config";
 import { contextQAAgent as ragAgent } from "../agents/contextQA-agent";
+import { getEmbedding, getEmbeddings } from "../../utils/embeddings";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const jobOpeningsDir = path.resolve(dirname, "../../src/mastra/job-openings");
@@ -28,33 +28,16 @@ const JobOpeningSchema = z
   })
   .describe("Job opening details");
 
-if (!env.OLLAMA_BASE_URL) {
-  throw new Error("OLLAMA_BASE_URL environment variable is not set");
-}
-
 export const getJobOpenings = async (req: Request, res: Response) => {
   const jobQuery = req.query.jobQuery;
   console.log("jobQuery", jobQuery);
   if (jobQuery && typeof jobQuery === "string" && jobQuery.trim() !== "") {
     try {
-       const response = await fetch(`${env.OLLAMA_BASE_URL}/api/embed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "nomic-embed-text",
-          input: jobQuery,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error: ${response.statusText}`);
-      }
-
-      const { embeddings } = await response.json();
+      const embedding = await getEmbedding(jobQuery);
 
       const results = await vectorStore.query({
         indexName: "job-openings",
-        queryVector: embeddings[0],
+        queryVector: embedding,
         topK: 3,
       });
 
@@ -100,27 +83,14 @@ export const createJobOpening = async (req: Request, res: Response) => {
     });
 
     try {
-       const response = await fetch(`${env.OLLAMA_BASE_URL}/api/embed`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "nomic-embed-text",
-          input: chunks.map((c) => c.text),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error: ${response.statusText}`);
-      }
-
-      const { embeddings } = await response.json();
+      const embeddings = await getEmbeddings(chunks.map((c) => c.text));
 
       const allIndexes = await vectorStore.listIndexes();
 
       if (!allIndexes.includes("job-openings")) {
         await vectorStore.createIndex({
           indexName: "job-openings",
-          dimension: 768,
+          dimension: 384, // all-MiniLM-L6-v2 produces 384-dimensional embeddings
         });
       }
       const result = await vectorStore.upsert({

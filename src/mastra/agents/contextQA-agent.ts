@@ -1,4 +1,3 @@
-import { groq } from "@ai-sdk/groq";
 import { Agent } from "@mastra/core/agent";
 import { Memory } from "@mastra/memory";
 import { LibSQLStore } from "@mastra/libsql";
@@ -84,7 +83,7 @@ You strictly follow a Retrieval-Augmented Generation (RAG) methodology and only 
 ---
 
 **You are not a general-purpose assistant. Only answer using verified sources from the Context7 and RAG systems. Follow the workflow, and ensure factual integrity in every response.**`,
-  model: "openrouter/minimax/minimax-m2:free",
+  model: "zhipuai-coding-plan/glm-4.6",
   tools: contextTools,
   memory: new Memory({
     options: {
