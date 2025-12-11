@@ -162,61 +162,8 @@ const sendTestReplyEmails = createStep({
         continue;
       }
 
-      const mobileDevQues = [
-  {
-    question: "Can you describe your experience with React Native and how you've used it in previous projects?",
-    type: 'text-based'
-  },
-  {
-    question: 'How do you optimize the performance of a React Native application?',
-    type: 'text-based'
-  },
-  {
-    question: 'Write a JavaScript function to implement a simple Redux store with a single reducer.',
-    type: 'example-based',
-    example: 'function reducer(state = {}, action) { switch (action.type) { ... } }'
-  },
-  {
-    question: 'What is the difference between JavaScript and TypeScript?',
-    type: 'multiple-choice',
-    options: [
-      'JavaScript is a dynamically-typed language, while TypeScript is statically-typed',
-      'JavaScript is a statically-typed language, while TypeScript is dynamically-typed',
-      'JavaScript and TypeScript are both dynamically-typed languages'
-    ]
-  },
-  {
-    question: "Can you explain the concept of a 'mobile-first' design approach and how you've implemented it in previous projects?",
-    type: 'text-based'
-  },
-  {
-    question: 'How do you handle errors and exceptions in a React Native application?',
-    type: 'text-based'
-  },
-  {
-    question: 'What is the purpose of using Git and GitHub in software development?',
-    type: 'riddle-based'
-  },
-  {
-    question: 'Can you describe a situation where you had to integrate a third-party library or service into a React Native application?',
-    type: 'text-based'
-  }
-]
-         
-
-      const customizedTemplate = customizeTemplate({
-          templateId: "templates-pre-questionnaire-details",
-          customItems: mobileDevQues,
-        })
-
-
-      if(!customizedTemplate) {
-       console.log("Failed to customize template")
-        continue;
-      }
-
       try {
-        await sendCustomizeThreadReplyEmail({
+        await sendThreadReplyEmail({
           name: emailInfo.senderName || "User",
           position: "Mobile App Developer",
           userEmail: emailInfo.senderEmail,
@@ -225,7 +172,8 @@ const sendTestReplyEmails = createStep({
           emailId: emailInfo.emailId,
           inReplyTo: emailInfo.messageId,
           references: [emailInfo.messageId],
-          templateMailBody: customizedTemplate,
+          templateId: "templates-rejection-no_cover_letter",
+          addLabelIds: ["Pre-Stage"],
         });
       } catch (error) {
         console.error("Error sending reply:", error);
