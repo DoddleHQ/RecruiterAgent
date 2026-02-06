@@ -50,6 +50,14 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       POSTGRES_VECTOR_CONNECTION_STRING: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY}
+      RECRUITER_NAME: oCode Recruiter
+      RECRUITMENT_MAIL: hi@ocode.co
+      CONSULTING_MAIL: consulting@ocode.co
+      BCC_MAIL: career@browsewire.net
     env_file:
       - .env
     volumes:
