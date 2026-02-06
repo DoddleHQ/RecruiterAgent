@@ -1,12 +1,13 @@
-# Production Dockerfile with non-root user
-FROM node:20-alpine
+# Production Dockerfile with non-root user (Debian-based for ONNX Runtime compatibility)
+FROM node:20-slim
 
-# Install glibc compatibility for onnxruntime-node
-RUN apk add --no-cache gcompat libc6-compat
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user (if not already exists)
-RUN addgroup -g 1000 node 2>/dev/null || true && \
-    adduser -D -u 1000 -G node node 2>/dev/null || true
+RUN groupadd -g 1000 node 2>/dev/null || true && \
+    useradd -u 1000 -g node -m node 2>/dev/null || true
 
 WORKDIR /app
 
