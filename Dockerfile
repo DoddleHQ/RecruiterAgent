@@ -19,8 +19,8 @@ COPY --chown=node:node . .
 # Build the project
 RUN npm run build
 
-# Create logs directory
-RUN mkdir -p /app/logs && chown -R node:node /app/logs
+# Create logs directory and fix ownership of .mastra directory
+RUN mkdir -p /app/logs && chown -R node:node /app/logs /app/.mastra
 
 # Switch to non-root user
 USER node
