@@ -1,6 +1,9 @@
 # Production Dockerfile with non-root user
 FROM node:20-alpine
 
+# Install glibc compatibility for onnxruntime-node
+RUN apk add --no-cache gcompat libc6-compat
+
 # Create non-root user (if not already exists)
 RUN addgroup -g 1000 node 2>/dev/null || true && \
     adduser -D -u 1000 -G node node 2>/dev/null || true
