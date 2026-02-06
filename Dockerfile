@@ -1,9 +1,9 @@
 # Production Dockerfile with non-root user
 FROM node:20-alpine
 
-# Create non-root user
-RUN addgroup -g 1000 node && \
-    adduser -D -u 1000 -G node node
+# Create non-root user (if not already exists)
+RUN addgroup -g 1000 node 2>/dev/null || true && \
+    adduser -D -u 1000 -G node node 2>/dev/null || true
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ WORKDIR /app
 COPY --chown=node:node package*.json ./
 
 # Install ALL dependencies (including dev) for mastra dev
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 # Copy source code
 COPY --chown=node:node . .
