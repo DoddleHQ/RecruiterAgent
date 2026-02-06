@@ -28,14 +28,21 @@ if (!recruitmentMail) {
   throw new Error("RECRUITMENT_MAIL environment variable is not set");
 }
 
-const gmailClient = await getGmailClient(recruitmentMail);
+let gmailClient: gmail_v1.Gmail;
+const getClient = async (): Promise<gmail_v1.Gmail> => {
+  if (!gmailClient) {
+    gmailClient = await getGmailClient(recruitmentMail);
+  }
+  return gmailClient;
+};
 
 const resolveLabelIds = async (labels: string[]) => {
-  const existingLabels = await gmailClient.users.labels.list({
+  const client = await getClient();
+  const existingLabels = await client.users.labels.list({
     userId: "me",
   });
-  const labelMap = new Map(
-    existingLabels.data.labels?.map((l) => [l.name, l.id])
+  const labelMap = new Map<string, string>(
+    existingLabels.data.labels?.map((l: gmail_v1.Schema$Label) => [l.name!, l.id!])
   );
 
   const ids: string[] = [];
@@ -44,10 +51,14 @@ const resolveLabelIds = async (labels: string[]) => {
     if (["INBOX", "UNREAD", "STARRED", "IMPORTANT"].includes(name)) {
       ids.push(name);
     } else if (labelMap.has(name)) {
-      ids.push(labelMap.get(name)!);
+      const labelId = labelMap.get(name);
+      if (typeof labelId === 'string') {
+        ids.push(labelId);
+      }
     } else {
       console.warn(`Label not found, creating: ${name}`);
-      const created = await gmailClient.users.labels.create({
+      const client = await getClient();
+      const created = await client.users.labels.create({
         userId: "me",
         requestBody: {
           name,
@@ -69,11 +80,12 @@ const resolveLabelIds = async (labels: string[]) => {
 export const getLabelId = async (label: string) => {
   if (!label) throw Error("Label was not provided");
 
-  const existingLabels = await gmailClient.users.labels.list({
+  const client = await getClient();
+  const existingLabels = await client.users.labels.list({
     userId: "me",
   });
-  const labelMap = new Map(
-    existingLabels.data.labels?.map((l) => [l.name, l.id])
+  const labelMap = new Map<string, string>(
+    existingLabels.data.labels?.map((l: gmail_v1.Schema$Label) => [l.name!, l.id!])
   );
 
   if (["INBOX", "UNREAD", "STARRED", "IMPORTANT"].includes(label)) {
@@ -88,11 +100,12 @@ export const getLabelId = async (label: string) => {
 export const getLabelNames = async (labelIds: string[]): Promise<string[]> => {
   if (!labelIds || labelIds.length === 0) throw Error("Label was not provided");
 
-  const existingLabels = await gmailClient.users.labels.list({
+  const client = await getClient();
+  const existingLabels = await client.users.labels.list({
     userId: "me",
   });
-  const labelMap = new Map(
-    existingLabels.data.labels?.map((l) => [l.name, l.id])
+  const labelMap = new Map<string, string>(
+    existingLabels.data.labels?.map((l: gmail_v1.Schema$Label) => [l.name!, l.id!])
   );
 
   const labels: string[] = [];
@@ -129,7 +142,8 @@ export const gmailSearchEmails = async (searchProps: {
 
     const { labelIds: _, ...rest } = searchProps;
 
-    const res = await gmailClient.users.messages.list({
+    const client = await getClient();
+    const res = await client.users.messages.list({
       userId: "me",
       labelIds: labelIds.length > 0 ? labelIds : undefined,
       ...rest,
@@ -143,7 +157,8 @@ export const gmailSearchEmails = async (searchProps: {
 export const getEmailContent = async (emailId: string) => {
   if (!emailId) throw new Error("emailId is required");
   try {
-    const response = await gmailClient.users.messages.get({
+    const client = await getClient();
+    const response = await client.users.messages.get({
       userId: "me",
       id: emailId,
     });
@@ -154,12 +169,13 @@ export const getEmailContent = async (emailId: string) => {
   }
 };
 
-export const getAttachment = async (attachmentId: string) => {
-  if (!attachmentId) throw new Error("attachmentId is required");
+export const getAttachment = async (messageId: string, attachmentId: string) => {
+  if (!attachmentId || !messageId) throw new Error("messageId and attachmentId are required");
   try {
-    const response = await gmailClient.users.messages.attachments.get({
+    const client = await getClient();
+    const response = await client.users.messages.attachments.get({
       userId: "me",
-      messageId: attachmentId,
+      messageId: messageId,
       id: attachmentId,
     });
     return response.data;
@@ -214,7 +230,7 @@ export const containsKeyword = ({
         `_cv`,
         `cv_`
       ];
-      
+
       for (const pattern of hyphenatedPatterns) {
         if (lower.includes(pattern)) {
           return true;
@@ -231,7 +247,8 @@ export const getDraftTemplate = async (searchProps: {
   q: string;
 }) => {
   try {
-    const res = await gmailClient.users.drafts.list({
+    const client = await getClient();
+    const res = await client.users.drafts.list({
       userId: "me",
       ...searchProps,
     });
@@ -263,7 +280,8 @@ export const sendEmail = async ({
 
   try {
     if (rawMessage) {
-      const response = await gmailClient.users.messages.send({
+      const client = await getClient();
+      const response = await client.users.messages.send({
         userId: "me",
         requestBody: {
           raw: rawMessage,
@@ -290,7 +308,8 @@ export const sendEmail = async ({
       .replace(/\//g, "_")
       .replace(/=+$/, "");
 
-    const response = await gmailClient.users.messages.send({
+    const client = await getClient();
+    const response = await client.users.messages.send({
       userId: "me",
       requestBody: {
         raw: emailRawMessage,
@@ -320,7 +339,8 @@ export const sendTestEmail = async ({
   }
   try {
     if (rawMessage) {
-      const response = await gmailClient.users.messages.send({
+      const client = await getClient();
+      const response = await client.users.messages.send({
         userId: "me",
         requestBody: {
           raw: rawMessage,
@@ -336,11 +356,12 @@ export const sendTestEmail = async ({
 
     let signature = "";
     try {
-      const sendAsResponse = await gmailClient.users.settings.sendAs.list({
+      const client = await getClient();
+      const sendAsResponse = await client.users.settings.sendAs.list({
         userId: "me",
       });
       const primarySendAs = sendAsResponse.data.sendAs?.find(
-        (as) => as.isPrimary
+        (as: gmail_v1.Schema$SendAs) => as.isPrimary
       );
       signature = primarySendAs?.signature || "";
     } catch (error) {
@@ -374,7 +395,8 @@ export const sendTestEmail = async ({
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
-    const response = await gmailClient.users.messages.send({
+    const client = await getClient();
+    const response = await client.users.messages.send({
       userId: "me",
       requestBody: {
         raw: emailRawMessage,
@@ -398,11 +420,12 @@ export const modifyEmailLabels = async ({
   removeLabelIds?: string[];
 }) => {
   try {
-    const existingLabels = await gmailClient.users.labels.list({
+    const client = await getClient();
+    const existingLabels = await client.users.labels.list({
       userId: "me",
     });
-    const labelMap = new Map(
-      existingLabels.data.labels?.map((l) => [l.name, l.id])
+    const labelMap = new Map<string, string>(
+      existingLabels.data.labels?.map((l: gmail_v1.Schema$Label) => [l.name!, l.id!])
     );
 
     const resolvedAddLabelIds = await resolveLabelIds(addLabelIds);
@@ -421,7 +444,7 @@ export const modifyEmailLabels = async ({
         })
         .filter((id): id is string => !!id);
 
-    const response = await gmailClient.users.messages.modify({
+    const response = await client.users.messages.modify({
       userId: "me",
       id: emailId,
       requestBody: {
@@ -431,7 +454,7 @@ export const modifyEmailLabels = async ({
     });
 
     if (threadId) {
-      await gmailClient.users.threads.modify({
+      await client.users.threads.modify({
         userId: "me",
         id: threadId,
         requestBody: {
@@ -450,7 +473,8 @@ export const modifyEmailLabels = async ({
 export const getThreadMessages = async (threadId: string) => {
   if (!threadId) throw new Error("threadId is required");
   try {
-    const response = await gmailClient.users.threads.get({
+    const client = await getClient();
+    const response = await client.users.threads.get({
       userId: "me",
       id: threadId,
     });
@@ -537,12 +561,12 @@ export const sendThreadReplyEmail = async ({
     const signatureText = signatureHtml.replace(/<[^>]*>/g, "");
 
     const replyMail = templateMailBody
-      .replaceAll("[Candidate Name]", name ? name : "Candidate")
-      .replaceAll(
-        "[Job Title]",
+      .replace(/\[Candidate Name\]/g, name ? name : "Candidate")
+      .replace(
+        /\[Job Title\]/g,
         position && position !== "unclear" ? position : "applied"
       )
-      .replaceAll("[Company Name]", "oCode Technologies");
+      .replace(/\[Company Name\]/g, "oCode Technologies");
 
     const replyMailWithSignature = signatureHtml
       ? `${replyMail}\n${signatureText}`
@@ -665,9 +689,9 @@ export const customizeTemplate = ({
     let customizedQuestions = "";
 
     customItems.forEach((item) => {
-      let formattedQuestion = `${item.question.trim().endsWith('.') ? item.question.trim().slice(0, -1) + '?' : item.question.trim().endsWith('?') ? item.question.trim() : item.question.trim() + '?'}`.replace(/\s\s+/g, ' ' );
+      let formattedQuestion = `${item.question.trim().endsWith('.') ? item.question.trim().slice(0, -1) + '?' : item.question.trim().endsWith('?') ? item.question.trim() : item.question.trim() + '?'}`.replace(/\s\s+/g, ' ');
 
-      switch(item.type){
+      switch (item.type) {
         case 'text-based':
           customizedQuestions += `<p style="padding-left: 20px">• ${formattedQuestion}</p>\r\n`;
           break;
@@ -737,12 +761,12 @@ export const sendCustomizeThreadReplyEmail = async ({
     const signatureText = signatureHtml.replace(/<[^>]*>/g, "");
 
     const replyMail = templateMailBody
-      .replaceAll("[Candidate Name]", name ? name : "Candidate")
-      .replaceAll(
-        "[Job Title]",
+      .replace(/\[Candidate Name\]/g, name ? name : "Candidate")
+      .replace(
+        /\[Job Title\]/g,
         position && position !== "unclear" ? position : "applied"
       )
-      .replaceAll("[Company Name]", "oCode Technologies");
+      .replace(/\[Company Name\]/g, "oCode Technologies");
 
     const replyMailWithSignature = signatureHtml
       ? `${replyMail}\n${signatureText}`

@@ -12,3 +12,12 @@ service-account.json
 
 # mastra
 .mastra/
+
+# Backup files
+*.backup
+
+# VSCode settings
+.vscode/
+
+# Duplicate files
+package-lock 2.json

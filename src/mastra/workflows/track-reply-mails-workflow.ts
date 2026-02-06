@@ -23,6 +23,11 @@ import {
   extractDetailedCandidateInfo,
   extractTextFromAttachment,
 } from "../../utils/emailUtils";
+import {
+  detectCoverLetterStatus,
+  detectResumeStatus,
+  extractJobDetails,
+} from "../../utils/extraction";
 import { extractJobApplication } from "../../utils/smartExtract";
 import { context7Mcp } from "../mcpservers/context7";
 import { queryVectorTool } from "../tools/queryVectorTool";
@@ -374,6 +379,9 @@ const analyseApplicantsOutput = z.object({
       currentCTC: z.string(),
       expectedCTC: z.string(),
       workExp: z.string(),
+      interviewTime: z.string().optional(),
+      location: z.string().optional(),
+      agreement: z.string().optional(),
     })
     .optional(),
 });
@@ -399,11 +407,6 @@ const analyseApplicants = createStep({
     for (let mail of applicants) {
       if (!mail || !mail.threadId) continue;
 
-      const agent = mastra.getAgent("contextQAAgent");
-
-      if (!agent) {
-        throw Error("ContextQA Agent not found at analyse-applicants step");
-      }
 
       const emailMetaData: z.infer<typeof analyseApplicantsOutput> = {
         id: mail.id || "",
@@ -420,11 +423,11 @@ const analyseApplicants = createStep({
 
       if (!threadMessages || !threadMessages.length) continue;
 
-      const attachments: { id: string; filename: string }[] = [];
+      const attachments: { id: string; filename: string; messageId: string }[] = [];
 
       const attachmentsMap = new Map<
         string,
-        { id: string; filename: string }
+        { id: string; filename: string; messageId: string }
       >();
       for (let threadMessage of threadMessages) {
         if (!threadMessage.id) continue;
@@ -438,6 +441,7 @@ const analyseApplicants = createStep({
               const attachment = {
                 id: part.body.attachmentId,
                 filename: part.filename,
+                messageId: threadMessage.id!,
               };
               attachmentsMap.set(attachment.id, attachment);
             }
@@ -445,15 +449,15 @@ const analyseApplicants = createStep({
         }
       }
 
-      for (let [_, attachment] of attachmentsMap) {
+      attachmentsMap.forEach((attachment) => {
         attachments.push(attachment);
-      }
+      });
 
       let attachmentContent = "";
 
       for (let attachment of attachments) {
         if (!attachment.id) continue;
-        const encodedAttachment = await getAttachment(attachment.id);
+        const encodedAttachment = await getAttachment(attachment.messageId, attachment.id);
 
         const attachmentData = await extractTextFromAttachment({
           filename: attachment.filename,
@@ -482,36 +486,27 @@ const analyseApplicants = createStep({
       }
 
       try {
-        const result = await agent.generate(
-          `Extract key details from the following email body:\n\n${mail.body}`,
-          {
-            instructions: `
-        You are an AI agent tasked with analyzing email bodies and extracting specific key details.
+        const extraction = await extractJobDetails({
+          subject: mail.subject,
+          body: mail.body + (mail.firstMessageBody ? "\n\nOriginal Context:\n" + mail.firstMessageBody : ""),
+          mastra,
+        });
 
-        Required fields: Always include these in the output JSON, even if the value is "N/A" (Not Applicable) or "unclear" (ambiguous).
-        - position: string
-        - currentCTC: string
-        - expectedCTC: string
-        - workExp: string
-
-        Return the result as a JSON object with the required fields that are present in the email body.
-        Do not use RAG or query_vector_tool.
-        Do not make any tool calls.
-        Only analyze the provided email text and extract the information directly from it.
-        If information is not found in the email, use "unclear" as the value.
-            `,
-            maxSteps: 1,
-            toolChoice: "none",
-          }
-        );
-        const extractedDetails: ApplicantKeyDetails = extractJsonFromResult(
-          result.text
-        );
+        const extractedDetails: ApplicantKeyDetails = {
+          position: extraction.jobTitle,
+          currentCTC: extraction.currentCTC || "unclear",
+          expectedCTC: extraction.expectedCTC || "unclear",
+          workExp: extraction.workExp || "unclear",
+          interviewTime: extraction.interviewTime || "unclear",
+          location: extraction.location || "unclear",
+          agreement: extraction.agreement || "unclear",
+        };
 
         const missingKeyDetails = extractedDetails
-          ? Object.values(extractedDetails).some(
-            (value) => value === "Not Provided" || value === "unclear"
-          )
+          ? Object.entries(extractedDetails).some(([key, value]) => {
+            const requiredFields = ["position", "workExp"];
+            return requiredFields.includes(key) && (value === "Not Provided" || value === "unclear");
+          })
           : true;
 
         if (missingKeyDetails) {
@@ -519,13 +514,7 @@ const analyseApplicants = createStep({
           continue;
         }
 
-        if (!extractedDetails) {
-          incompleteApplicationsData.push(emailMetaData);
-          continue;
-        }
-
         emailMetaData.keyDetails = extractedDetails;
-
         applicantsData.push(emailMetaData);
       } catch (e) {
         console.error("Error extracting key details from email:", e);
@@ -556,6 +545,12 @@ const analyseApplicantionOutput = z.object({
   job_title: z.string().nullable(),
   experience_status: z.string().nullable(),
   category: z.string().nullable(),
+  currentCTC: z.string().optional(),
+  expectedCTC: z.string().optional(),
+  workExp: z.string().optional(),
+  interviewTime: z.string().optional(),
+  location: z.string().optional(),
+  agreement: z.string().optional(),
 });
 
 const analyseIncompleteApplications = createStep({
@@ -601,6 +596,7 @@ const analyseIncompleteApplications = createStep({
 
       let attachment_filename: string[] = [];
       let attachmentId: string[] = [];
+      let attachmentMessageIds: string[] = [];
       let candidateThreadMailBodies = undefined;
 
       const resumeLink =
@@ -614,18 +610,20 @@ const analyseIncompleteApplications = createStep({
           .pop() || "";
 
       for (let message of candidateMessages) {
-        const messageAttachmentFilenames = message.payload?.parts
+        const parts = message.payload?.parts || [];
+
+        const messageAttachmentFilenames = parts
           ?.filter((p) => p.filename)
           .map((p) => p.filename) || [];
-        const messageAttachmentIds = message.payload?.parts
+        const messageAttachmentIds = parts
           ?.filter((p) => p.body?.attachmentId)
           .map((p) => p.body?.attachmentId) || [];
 
         const plainTextPart =
-          message.payload?.parts
+          parts
             ?.find((p) => p.mimeType === "multipart/alternative")
             ?.parts?.find((p2) => p2.mimeType === "text/plain") ||
-          message.payload?.parts?.find((p) => p.mimeType === "text/plain");
+          parts?.find((p) => p.mimeType === "text/plain");
 
         const decodedBody = decodeEmailBody(plainTextPart).split("On")[0];
 
@@ -633,230 +631,29 @@ const analyseIncompleteApplications = createStep({
           ? (candidateThreadMailBodies ?? "") + decodedBody
           : (candidateThreadMailBodies ?? "");
 
-        // Collect attachment filenames from all messages
-        if (messageAttachmentFilenames && messageAttachmentFilenames.length > 0) {
-          const validFilenames = messageAttachmentFilenames.filter(
-            (filename): filename is string => filename !== null && filename !== undefined
-          );
-          attachment_filename = [...attachment_filename, ...validFilenames];
-        }
-
-        // Collect attachment IDs from all messages
-        if (messageAttachmentIds && messageAttachmentIds.length > 0) {
-          const validAttachmentIds = messageAttachmentIds.filter(
-            (id): id is string => id !== null && id !== undefined
-          );
-          attachmentId = [...attachmentId, ...validAttachmentIds];
-        }
+        // Collect attachment info from all messages
+        parts.forEach(p => {
+          if (p.filename && p.body?.attachmentId) {
+            attachment_filename.push(p.filename);
+            attachmentId.push(p.body.attachmentId);
+            attachmentMessageIds.push(message.id!);
+          }
+        });
       }
 
-
-      const mailBodyKeywordsCheck = containsKeyword({
-        text: mail.body,
-        keywords: [
-          // classic openers / closers
-          "cover letter",
-          "dear hiring manager",
-          "dear sir or madam",
-          "dear team",
-          "dear recruiter",
-          "dear [company]",
-          "i am writing to",
-          "i am excited to apply",
-          "i am reaching out",
-          "i am interested in",
-          "thank you for considering",
-          "thank you for your time",
-          "sincerely yours",
-          "best regards",
-
-          // self-introduction / intent
-          "with x years of experience",
-          "with hands-on experience in",
-          "i bring to the table",
-          "i offer",
-          "i am eager to",
-          "i am passionate about",
-          "i am confident that",
-          "i would love the opportunity",
-          "i am looking forward to",
-          "contribute to your team",
-          "add value to your organization",
-          "aligns with my career goals",
-
-          // skill highlights
-          "proficient in",
-          "expertise in",
-          "skilled at",
-          "experience working with",
-          "experience includes",
-          "hands-on knowledge of",
-          "demonstrated ability in",
-          "proven track record",
-          "strong background in",
-          "solid understanding of",
-
-          // achievements & impact
-          "improved",
-          "increased",
-          "reduced",
-          "achieved",
-          "delivered",
-          "optimized",
-          "enhanced",
-          "streamlined",
-          "boosted",
-          "spearheaded",
-          "led the development",
-          "successfully launched",
-          "production-ready apps",
-          "real-world projects",
-
-          // soft skills
-          "team-oriented",
-          "detail-oriented",
-          "self-motivated",
-          "fast learner",
-          "adaptable",
-          "collaborative",
-          "multitask",
-          "problem-solving",
-          "critical thinking",
-          "communication skills",
-
-          // company-centric phrases
-          "your company's mission",
-          "your innovative projects",
-          "your dynamic environment",
-          "your development team",
-          "your engineering culture",
-          "your product roadmap",
-          "your commitment to excellence",
-        ],
+      const hasCoverLetter = detectCoverLetterStatus({
+        body: mail.body,
+        attachmentFilenames: attachment_filename,
       });
 
-      const threadBodyKeywordsCheck = containsKeyword({
-        text: candidateThreadMailBodies ?? "",
-        keywords: [
-          // classic openers / closers
-          "cover letter",
-          "dear hiring manager",
-          "dear sir or madam",
-          "dear team",
-          "dear recruiter",
-          "dear [company]",
-          "i am writing to",
-          "i am excited to apply",
-          "i am reaching out",
-          "i am interested in",
-          "thank you for considering",
-          "thank you for your time",
-          "sincerely yours",
-          "best regards",
-
-          // self-introduction / intent
-          "with x years of experience",
-          "with hands-on experience in",
-          "i bring to the table",
-          "i offer",
-          "i am eager to",
-          "i am passionate about",
-          "i am confident that",
-          "i would love the opportunity",
-          "i am looking forward to",
-          "contribute to your team",
-          "add value to your organization",
-          "aligns with my career goals",
-
-          // skill highlights
-          "proficient in",
-          "expertise in",
-          "skilled at",
-          "experience working with",
-          "experience includes",
-          "hands-on knowledge of",
-          "demonstrated ability in",
-          "proven track record",
-          "strong background in",
-          "solid understanding of",
-
-          // achievements & impact
-          "improved",
-          "increased",
-          "reduced",
-          "achieved",
-          "delivered",
-          "optimized",
-          "enhanced",
-          "streamlined",
-          "boosted",
-          "spearheaded",
-          "led the development",
-          "successfully launched",
-          "production-ready apps",
-          "real-world projects",
-
-          // soft skills
-          "team-oriented",
-          "detail-oriented",
-          "self-motivated",
-          "fast learner",
-          "adaptable",
-          "collaborative",
-          "multitask",
-          "problem-solving",
-          "critical thinking",
-          "communication skills",
-
-          // company-centric phrases
-          "your company's mission",
-          "your innovative projects",
-          "your dynamic environment",
-          "your development team",
-          "your engineering culture",
-          "your product roadmap",
-          "your commitment to excellence",
-        ],
+      const hasResume = await detectResumeStatus({
+        body: mail.body,
+        attachmentFilenames: attachment_filename,
+        attachmentIds: attachmentId,
+        messageId: mail.id, // Fallback
+        messageIds: attachmentMessageIds, // Accurate tracking
+        resumeLink: resumeLink,
       });
-
-      const bodyLengthCheck = mail.body.length >= 300;
-      const wordCountCheck = mail.body.trim().split(/\s+/).length >= 50;
-
-      const hasCoverLetter = (mailBodyKeywordsCheck ?? threadBodyKeywordsCheck) && bodyLengthCheck && wordCountCheck;
-
-      const hasResume =
-        attachmentId &&
-          attachmentId?.length &&
-          attachment_filename &&
-          attachment_filename?.length
-          ? containsKeyword({
-            text: attachment_filename?.join(" ") || "",
-            keywords: ["resume", "cv", "cover letter", "-resume", "-cv"],
-          }) ||
-          containsKeyword({
-            text: mail.body || "",
-            keywords: [
-              "resume",
-              "Resume",
-              "resume attached",
-              "cv attached",
-              "please find my resume",
-              "attached is my resume",
-              "attached my resume",
-              "resume:",
-              "Resume:",
-            ],
-          }) ||
-          containsKeyword({
-            text: mail.body || "",
-            keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
-          })
-          : resumeLink
-            ? true
-            : containsKeyword({
-              text: mail.body || "",
-              keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
-            });
 
       const emailMetaData = {
         id: mail.id,
@@ -883,107 +680,44 @@ const analyseIncompleteApplications = createStep({
       }
 
       try {
-        const extraction = await extractJobApplication(mail.subject, mail.body);
+        const { jobTitle, category, experienceStatus, currentCTC, expectedCTC, workExp, interviewTime, location, agreement } = await extractJobDetails({
+          subject: mail.subject,
+          body: candidateThreadMailBodies || mail.body,
+          mastra,
+        });
 
-        if (extraction.category !== "unclear" && extraction.jobTitle !== "unclear") {
+        if (category !== "unclear" && jobTitle !== "unclear") {
           applicantsData.push({
             ...emailMetaData,
-            job_title: extraction.jobTitle.trim().slice(0, 50),
-            category: extraction.category,
-            experience_status: extraction.experienceStatus,
-          });
-          continue;
-        }
-      } catch (err) {
-        console.error("Transformer extraction failed:", err);
-      }
-
-      try {
-        const agent = mastra.getAgent("contextQAAgent");
-
-        if (!agent) {
-          throw new Error(
-            "contextQAAgent not found at analyseIncompleteApplications step"
-          );
-        }
-
-        const result = await agent.generate(
-          "Extract job application details from emails with varying structures",
-          {
-            instructions: `
-You are a job-application parser.
-Input variables:
-- SUBJECT: ${mail.subject?.trim()}
-- BODY: ${mail.body.trim()}
-
-Return **only** valid JSON:
-{ "job_title": "<title>", "experience_status": "<status>", "category": "<category>" }
-
-1. JOB_TITLE
-   a. Patterns (stop at first hit):
-      • ^Application for (.+?)(?:\\s*\\(|\\s*Role|$)
-      • New application received for the position of (.+?)(?:\\s*\\[|\\s*at|$)
-      • Job Opening: (.+?)(?:\\s*\\[|\\s*at|$)
-      • applying for the (.+?) role|position
-      • interest in any suitable (.+?) opportunities
-   b. Clean: trim; drop everything from '(' or '[' onward.
-   c. Fallback: extract phrase before "developer", "engineer", "programmer", "designer", etc.
-
-2. EXPERIENCE_STATUS
-   • "experienced" if regex matches:
-     \\b(?:\\d+(?:\\.\\d+)?)\\s*(?:\\+|years?)\\b  OR  \\bbuilt \\d+ apps?\\b  OR  \\bthroughout my career\\b
-   • "fresher" if "recent graduate", "intern", "entry-level" appear and no numeric years.
-   • else "unclear".
-
-3. CATEGORY
-   • "Developer" if title OR body contains: developer, engineer, programmer, flutter, react, backend, frontend, full-stack, node, laravel, php, mobile, app, software.
-   • "Web Designer" for designer, ui/ux, web design.
-   • "Recruiter" for recruiter, hr, talent acquisition.
-   • "Sales/Marketing" for sales, marketing, business development.
-   • else "unclear".
-
-Return **only** the JSON object—no explanation.
-Do not make any tool calls.
-Only analyze the provided text and extract the information directly from it.
-`,
-            maxSteps: 1,
-            toolChoice: "none",
-          }
-        );
-        const generatedResult: {
-          job_title: string;
-          experience_status: string;
-          category: string;
-        } = extractJsonFromResult(result.text);
-
-        if (
-          !hasCoverLetter ||
-          !hasResume ||
-          generatedResult?.job_title === "unclear" ||
-          !generatedResult?.job_title
-        ) {
-          incompleteApplicationsData.push({
-            ...emailMetaData,
-            hasCoverLetter,
-            hasResume,
-            job_title: generatedResult?.job_title || "unclear",
-            experience_status: generatedResult?.experience_status || "unclear",
-            category: generatedResult?.category || "unclear",
+            job_title: jobTitle,
+            category: category,
+            experience_status: experienceStatus,
+            currentCTC,
+            expectedCTC,
+            workExp,
+            interviewTime,
+            location,
+            agreement,
           });
           continue;
         } else {
-          applicantsData.push({
+          incompleteApplicationsData.push({
             ...emailMetaData,
-            hasCoverLetter,
-            hasResume,
-            job_title: generatedResult.job_title || "unclear",
-            experience_status: generatedResult.experience_status || "unclear",
-            category: generatedResult.category || "unclear",
+            job_title: jobTitle,
+            category: category,
+            experience_status: experienceStatus,
+            currentCTC,
+            expectedCTC,
+            workExp,
+            interviewTime,
+            location,
+            agreement,
           });
           continue;
         }
       } catch (err) {
-        console.log("error occured while extracting job title", err);
+        console.error("Extraction failed for reply mail:", err);
+        incompleteApplicationsData.push(emailMetaData);
         continue;
       }
     }
@@ -1103,7 +837,7 @@ const migrateApplicantsWithKeyDetails = createStep({
         for (const { id, filename } of attachmentIds) {
           if (!id || !filename) continue;
           try {
-            const attachment = await getAttachment(id);
+            const attachment = await getAttachment(message.id!, id);
             resumeAttachment = {
               filename,
               attachment: attachment.data,
@@ -1715,21 +1449,21 @@ const trackReplyMailsWorkflow = createWorkflow({
       async ({ inputData: { applicantsData } }) => applicantsData.length > 0,
       migrateConfirmedApplicants,
     ],
-    // [
-    //   async ({ inputData: { rejectedWithoutKeys } }) =>
-    //     rejectedWithoutKeys.length > 0,
-    //   markApplicationAsUnclear,
-    // ],
-    // [
-    //   async ({ inputData: { incompleteApplicationsData } }) =>
-    //     incompleteApplicationsData.length > 0,
-    //   informToReApply,
-    // ],
-    // [
-    //   async ({ inputData: { rejectedWithoutKeys } }) =>
-    //     rejectedWithoutKeys.length > 0,
-    //   informToResend,
-    // ],
+    [
+      async ({ inputData: { rejectedWithoutKeys } }) =>
+        rejectedWithoutKeys.length > 0,
+      markApplicationAsUnclear,
+    ],
+    [
+      async ({ inputData: { incompleteApplicationsData } }) =>
+        incompleteApplicationsData.length > 0,
+      informToReApply,
+    ],
+    [
+      async ({ inputData: { rejectedWithoutKeys } }) =>
+        rejectedWithoutKeys.length > 0,
+      informToResend,
+    ],
   ]);
 
 trackReplyMailsWorkflow.commit();

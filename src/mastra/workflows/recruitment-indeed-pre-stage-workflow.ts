@@ -9,6 +9,8 @@ import {
   sendThreadReplyEmail,
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
+import { findPotentialJobTitle } from "../../utils/emailUtils";
+import { detectResumeStatus, extractJobDetails } from "../../utils/extraction";
 import { extractJobApplication } from "../../utils/smartExtract";
 import * as cheerio from "cheerio";
 import { env } from "../../utils/config";
@@ -326,31 +328,38 @@ const extractEmailMetaData = createStep({
         resume: resumeLink,
       };
 
-      const hasResume = resumeLink ? true : false;
+      const hasResume = await detectResumeStatus({
+        body: decodedBody,
+        attachmentFilenames: [],
+        resumeLink: resumeLink
+      });
 
       try {
-        const extraction = await extractJobApplication(subject ?? "", decodedBody);
+        const { jobTitle, category, experienceStatus } = await extractJobDetails({
+          subject: subject ?? "",
+          body: decodedBody,
+          mastra,
+        });
 
-        if (extraction.category !== "unclear" && extraction.jobTitle !== "unclear") {
-          return {
-            ...emailMetaData,
-            hasResume,
-            position: extraction.jobTitle.trim().slice(0, 50),
-            category: extraction.category,
-            experienceStatus: extraction.experienceStatus,
-          };
-        }
+        const position = jobTitle || "unclear";
+
+        return {
+          ...emailMetaData,
+          hasResume,
+          position,
+          category,
+          experienceStatus,
+        };
       } catch (err) {
-        console.error("Transformer extraction failed:", err);
+        console.error("Error occurred while extracting Indeed application details:", err);
+        return {
+          ...emailMetaData,
+          hasResume,
+          position: "unclear",
+          category: "unclear",
+          experienceStatus: "unclear",
+        };
       }
-
-      return {
-        ...emailMetaData,
-        hasResume,
-        position: "unclear",
-        category: "unclear",
-        experienceStatus: "unclear",
-      };
     } catch (err) {
       console.log("Error occured while extracting details from email", err);
       return null;

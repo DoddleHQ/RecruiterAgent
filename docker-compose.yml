@@ -26,17 +26,6 @@ services:
     networks:
       - mastra-network
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    restart: always
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - mastra-network
-
   mastra-app:
     build: .
     ports:
@@ -46,19 +35,16 @@ services:
       MASTRA_TELEMETRY_DISABLED: "true"
       POSTHOG_DISABLED: "true"
       POSTGRES_VECTOR_CONNECTION_STRING: postgres://postgres:postgres@postgres:5432/vector
-      OLLAMA_BASE_URL: http://ollama:11434
     restart: unless-stopped
     depends_on:
       - redis
       - postgres
-      - ollama
     networks:
       - mastra-network
 
 volumes:
   redis-data:
   postgres-data:
-  ollama-data:
 
 networks:
   mastra-network:

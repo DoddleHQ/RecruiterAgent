@@ -5,6 +5,7 @@ import { recruitmentPreStageWorkflow } from "./workflows/recruitment-pre-stage-w
 
 import { trackReplyMailsWorkflow } from "./workflows/track-reply-mails-workflow";
 import { contextQAAgent } from "./agents/contextQA-agent";
+import { extractionAgent } from "./agents/extraction-agent";
 import express from "express";
 import cors from "cors";
 import cron from "node-cron";
@@ -42,7 +43,8 @@ export const mastra = new Mastra({
     debugWorkflow,
   },
   agents: {
-    contextQAAgent
+    contextQAAgent,
+    extractionAgent
   },
   storage: new LibSQLStore({
     // stores telemetry, evals, ... into memory storage, if it needs to persist, change to file:../mastra.db
