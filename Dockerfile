@@ -15,7 +15,8 @@ WORKDIR /app
 COPY --chown=node:node package*.json ./
 
 # Install ALL dependencies (including dev) for mastra dev
-RUN npm install --legacy-peer-deps
+RUN npm install --legacy-peer-deps && \
+    chown -R node:node /app/node_modules
 
 # Copy source code
 COPY --chown=node:node . .
@@ -24,7 +25,7 @@ COPY --chown=node:node . .
 RUN npm run build
 
 # Create logs directory and fix ownership of .mastra directory
-RUN mkdir -p /app/logs && chown -R node:node /app/logs /app/.mastra
+RUN mkdir -p /app/logs && chown -R node:node /app/logs /app/.mastra /app/node_modules/@mastra
 
 # Switch to non-root user
 USER node
