@@ -14,42 +14,36 @@ export function findPotentialJobTitle({
   subject: string;
   body: string;
 }) {
-  const subjectParts = subject.split("New application for ") || subject.split("Application for ");
-  const subjectJobTitle = subjectParts.length > 1 ? subjectParts[1].split(",")[0].trim() : null;
-
-  const subjectAppliedParts = subject.split("New application received for the position of ");
-  const subjectAppliedJobTitle = subjectAppliedParts.length > 1 ? subjectAppliedParts[1].split("at")[0].trim() : null;
-
-  const bodyParts = body.split("Job Opening:");
-  const bodyJobTitle = bodyParts.length > 1 ? bodyParts[1].split("[")[0].trim() : null;
-
-  const bodyAppliedParts = body.split("applied to the") || body.split("Applying for the");
-  const bodyAppliedJobTitle = bodyAppliedParts.length > 1 ? bodyAppliedParts[1].split("position")[0].trim() : null;
-
-  const simpleResult = subjectJobTitle || subjectAppliedJobTitle || bodyJobTitle || bodyAppliedJobTitle;
-  if (simpleResult) {
-    return simpleResult;
-  }
-
+  const subjectClean = subject.replace(/On\s+.*wrote:$/i, "").trim();
+  const bodyClean = body.replace(/On\s+.*wrote:$/i, "").trim();
 
   let jobTitle: string | null = null;
 
 
   if (subject) {
     const subjectPatterns = [
-      /^Application for (.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
+      /^Application for (.+?)(?:\s*\(|\s+Role|\s+Position|\s+Role|$)/i,
       /^New application received for the position of (.+?)(?:\s*\[|\s+at|$)/i,
       /^Job Opening: (.+?)(?:\s*\[|\s+at|$)/i,
       /^Applying for the (.+?)(?:\s+Role|\s+Position|$)/i,
       /^Re:\s*Application for (.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
       /^Re:\s*New application received for the position of (.+?)(?:\s*\[|\s+at|$)/i,
+      /^Re:\s*Job application for (.+)$/i,
+      /^Re:\s*Application for the post of (.+)$/i,
+      /^Re:\s*Application for (.+)(?:\s+Role|\s+Position|$)/i,
+      /^Re:\s*(.+?)\s+Application$/i,
     ];
 
     for (const pattern of subjectPatterns) {
       const match = subject.match(pattern);
       if (match) {
         jobTitle = match[1].trim();
-        jobTitle = jobTitle.replace(/\s*\(.*?\)$/, "").trim();
+        // Clean up common greedy suffixes
+        jobTitle = jobTitle.replace(/\s*\(.*?\)$/, "")
+          .replace(/\s*[-–]\s*Immediate Joiner.*$/i, "")
+          .replace(/\s*position$/i, "")
+          .replace(/\s*role$/i, "")
+          .trim();
         break;
       }
     }
@@ -129,21 +123,22 @@ export function fastParseEmail(subject: string, body: string): FastParseResult {
 
     if (jobTitle) {
       jobTitle = jobTitle
-        .replace(/^post of\s+/i, "")
-        .replace(/^position of\s+/i, "")
         .replace(/\s+Position$/i, "")
         .replace(/\s+Role$/i, "")
-        .replace(/\s+at\s+.+$/i, "")
-        .replace(/\s*\[.+\]$/, "")
+        .replace(/\s+at\s+.*$/i, "")
+        .replace(/\s*[\[{(].*?[\]})]$/, "")
         .trim();
     }
   }
 
   if (!jobTitle && body) {
     const bodyPatterns = [
-      /(?:I am writing to express my interest in|I am applying for|interest in) the (.+?)(?:\s+Role|\s+Position|$)/i,
-      /(?:position|role) of (.+?)(?:\s+at|\s*\[|$)/i,
+      /(?:I am applying for|Applying for|Applied for) the (.+?)(?:\s+Role|\s+Position|$)/i,
+      /(?:I'm|I am) interested in the (.+?)(?:\s+Role|\s+Position|$)/i,
+      /(?:position|role|post) of (.+?)(?:\s+at|\s*\[|$)/i,
       /Job Opening: (.+?)(?:\s*\[|\s+at|$)/i,
+      /(?:applying for|position of) (\*?)(.+?)(\*?)(?:\s+Role|\s+Position|$)/i,
+      /Application for (.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
     ];
 
     for (const pattern of bodyPatterns) {
@@ -331,8 +326,8 @@ export function extractDetailedCandidateInfo(
     const subjectPatterns = [
       /^(?:Re:\s*)?New application received for the position of (.+?)(?:\s+at\s+|$)/i,
       /^(?:Re:\s*)?Job Application\s+\|\s*(.+?)\s*\|/i,
-      // Add pattern for "Application for [Position] Position" format
-      /^(?:Re:\s*)?Application for (.+?) Position/i,
+      /^(?:Re:\s*)?Application for (.+?)(?:\s+Position|\s+Role|$)/i,
+      /^(?:Re:\s*)?Job application for (.+)$/i,
     ];
     for (const pattern of subjectPatterns) {
       const match = subject.match(pattern);

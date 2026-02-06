@@ -42,69 +42,68 @@ export interface SmartExtractionResult {
     };
 }
 
-function tryPatternExtraction(subject: string): string | null {
-    if (!subject) return null;
-
-    const patterns = [
-        // Indeed: "New Message from Name - Role"
+function tryPatternExtraction(subject: string, body?: string): string | null {
+    const subjectPatterns = [
+        // Indeed specific
         /New\s+Message\s+from\s+.+?\s*[–-]\s*(.+?)$/i,
-        // Indeed: "[Action required] New application for Role, Location"
-        /\[Action\s+required\]\s+New\s+application\s+for\s+(.+?)(?:,|\s*$)/i,
-        // "New application received for the position of X at Company"
-        /position\s+of\s+(.+?)(?:\s+at\s+|\s*\[|$)/i,
-        // "Application for X" or "Apply for X"
-        /(?:application|apply)\s+for\s+(.+?)(?:\s+(?:job|position|at)|$|\s*\()/i,
-        // "Job Opening: X"
-        /job\s+opening:\s*(.+?)(?:\s*\[|\s+at|$)/i,
-        // "Applying for the X"
-        /applying\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role)|$)/i,
-        // "Looking for a X job role"
-        /looking\s+for\s+(?:a\s+)?(.+?)\s+(?:job|role|position)/i,
-        // "I am X" or "I'm X"
-        /^(?:I\s+am|I'm)\s+(?:a\s+)?(.+?)$/i,
-        // "Submission of ... – X"
-        /submission\s+.+?[–-]\s*(.+?)$/i,
-        // "X – Immediate Joiner"
+        /\[Action\s+required\]\s+New\s+application\s+for\s+(.+?)(?:,|\s*\d+\s*at|$)/i,
+
+        // General specific
+        /^Application\s+for\s+(.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
+        /^New\s+application\s+received\s+for\s+the\s+position\s+of\s+(.+?)(?:\s+at\s+|\s*\[|$)/i,
+        /^Job\s+Opening:\s*(.+?)(?:\s*\[|\s+at|$)/i,
+        /^Applying\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job)|$)/i,
+
+        // Reply / Forward formats
+        /^(?:Re|Fwd|FW|回复|转发):\s*Application\s+for\s+(.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
+        /^(?:Re|Fwd|FW|回复|转发):\s*New\s+application\s+received\s+for\s+the\s+position\s+of\s+(.+?)(?:\s+at\s+|\s*\[|$)/i,
+        /^(?:Re|Fwd|FW|回复|转发):\s*Job\s+Opening:\s*(.+?)(?:\s*\[|\s+at|$)/i,
+        /^(?:Re|Fwd|FW|回复|转发):\s*Applying\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job)|$)/i,
+        /^(?:Re|Fwd|FW|回复|转发):\s*(.+?)(?:\s+position|\s+role|\s+Application)$/i,
+
+        // Indeed format "Role - Immediate Joiner"
         /^(.+?)\s*[–-]\s*Immediate\s+Joiner/i,
-        // "Subject: ... – X"
-        /Subject:\s*.+?[–-]\s*(.+?)$/i,
+
+        // Submission format
+        /Submission\s+of\s+.+?[–-]\s*(.+?)$/i,
     ];
 
-    for (const pattern of patterns) {
-        const match = subject.match(pattern);
-        if (match && match[1]) {
-            let title = match[1].trim()
-                .replace(/\s*\(.*\)$/, '')
-                .replace(/\s+(job|role|position)$/i, '')
-                .replace(/\s+at\s+.+$/i, '')
-                .trim();
+    const bodyPatterns = [
+        /(?:I am|I'm)\s+(?:applying|interested)\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job)|$)/i,
+        /(?:I would like to confirm|applying)\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job)|$)/i,
+        /(?:position|role|post)\s+of\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job|at)|$)/i,
+        /(?:applying|applied)\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job)|$)/i,
+    ];
 
-            if (title.length > 2 && title.length <= 60) {
-                return title;
+    const roleKeywords = ["developer", "engineer", "designer", "manager", "analyst", "consultant", "specialist", "recruiter", "intern", "lead", "architect", "tester", "programmer", "recruitments"];
+
+    const extract = (text: string, patterns: RegExp[]) => {
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match && match[1]) {
+                let title = match[1].trim()
+                    .replace(/\s*\(.*\)$/, '')
+                    .replace(/^for\s+/i, '')
+                    .replace(/^the\s+/i, '')
+                    .replace(/\s+(job|role|position)$/i, '')
+                    .replace(/\s+at\s+.+$/i, '')
+                    .trim();
+
+                if (title.length > 2 && title.length <= 60) {
+                    if (roleKeywords.some(kw => title.toLowerCase().includes(kw))) {
+                        return title;
+                    }
+                }
             }
         }
-    }
+        return null;
+    };
 
-    const roleKeywords = ["developer", "engineer", "designer", "manager", "analyst", "consultant", "specialist", "recruiter", "intern", "lead", "architect", "tester"];
-    const subjectLower = subject.toLowerCase();
-
-    if (roleKeywords.some(kw => subjectLower.includes(kw))) {
-        let title = subject
-            .replace(/^(Re:\s*)?/i, "")
-            .replace(/^(Subject:\s*)?/i, "")
-            .replace(/\s*(at\s+.+|\(.*\)|–.*|-\s*Immediate.*|\[.*)$/i, "")
-            .trim();
-
-        if (title.length > 2 && title.length <= 60) {
-            return title;
-        }
-    }
-
-    return null;
+    return extract(subject, subjectPatterns) || (body ? extract(body, bodyPatterns) : null);
 }
 
 async function extractJobTitle(subject: string, body: string): Promise<{ title: string; confidence: number }> {
-    const patternTitle = tryPatternExtraction(subject);
+    const patternTitle = tryPatternExtraction(subject, body);
     if (patternTitle) {
         return { title: patternTitle, confidence: 0.8 };
     }
@@ -114,7 +113,7 @@ async function extractJobTitle(subject: string, body: string): Promise<{ title: 
         contextParts.push(`The email subject is: "${subject}".`);
     }
     if (body && body.trim().length > 0) {
-        contextParts.push(`The email body says: ${body.slice(0, 400)}`);
+        contextParts.push(`The email body says: ${body.slice(0, 2000)}`);
     }
     const context = contextParts.join(' ');
 
@@ -168,7 +167,7 @@ async function classifyApplication(text: string): Promise<{
     categoryConfidence: number;
     experienceConfidence: number;
 }> {
-    const truncatedText = text.slice(0, 500);
+    const truncatedText = text.slice(0, 2000);
     const textLength = truncatedText.length;
 
     const categoryResult = await classifier(truncatedText, JOB_CATEGORIES, {
@@ -200,13 +199,17 @@ async function classifyApplication(text: string): Promise<{
 
     let experienceStatus: SmartExtractionResult["experienceStatus"] = "unclear";
 
-    const hasYearsExperience = /\d+\s*(years?|yrs?)\s*(of)?\s*experience/i.test(truncatedText);
+    const hasYearsExperience = /\b(?:[2-9]|\d{2,})\s*(years?|yrs?)\s*(of)?\s*experience/i.test(truncatedText);
+    const hasOneYearExperience = /\b1\s*(year|yr)\s*(of)?\s*experience/i.test(truncatedText);
     const hasFresherMarker = /fresher|fresh graduate|entry level|internship|intern\b|recently completed|just graduated/i.test(truncatedText);
 
     if (hasYearsExperience) {
         experienceStatus = "experienced";
     } else if (hasFresherMarker) {
         experienceStatus = "fresher";
+    } else if (hasOneYearExperience) {
+        // 1 year can be borderline, but usually marked as experienced unless fresher keywords also present
+        experienceStatus = "experienced";
     } else if (textLength > 100 && experienceScore > 0.5) {
         if (topExperience.includes("Experienced")) {
             experienceStatus = "experienced";

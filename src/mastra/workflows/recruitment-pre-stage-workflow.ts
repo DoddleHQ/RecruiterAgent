@@ -11,6 +11,7 @@ import {
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
 import { findPotentialJobTitle } from "../../utils/emailUtils";
+import { detectCoverLetterStatus, detectResumeStatus, extractJobDetails } from "../../utils/extraction";
 import { extractJobApplication } from "../../utils/smartExtract";
 import { env } from "../../utils/config";
 
@@ -36,12 +37,20 @@ export const extractEmailAndName = (
 };
 
 export const extractJsonFromResult = (result: string) => {
-  const match = result.match(/\{.*\}/s);
+  const match = result.match(/\{[\s\S]*?\}/);
   if (match) {
     try {
       return JSON.parse(match[0]);
     } catch (e) {
-      console.log("Error parsing result:", e);
+      // Try to clean up common issues
+      const cleaned = match[0]
+        .replace(/,\s*}/g, '}')  // Remove trailing commas
+        .replace(/,\s*]/g, ']');  // Remove trailing commas
+      try {
+        return JSON.parse(cleaned);
+      } catch (e2) {
+        console.log("Error parsing result:", e2);
+      }
     }
   }
   return null;
@@ -324,276 +333,41 @@ const extractEmailMetaData = createStep({
         attachmentId: attachmentId || [],
       };
 
-      const isCoverLetterAIGenerated = containsKeyword({
-        text: decodedBody,
-        keywords: [
-          "[job title]",
-          "[company name]",
-          "[candidate name]",
-          "[position]",
-          "[category]",
-          "[experience status]",
-          "[job description]",
-          "[responsibilities]",
-          "[skills]",
-          "[qualifications]",
-          "[salary range]",
-          "[location]",
-          "[industry]",
-          "[job type]",
-          "[company size]",
-          "[company website]",
-          "[company email]",
-          "[company phone]",
-          "[company address]",
-          "[hiring manager name]",
-          "[hiring manager email]",
-          "[hiring manager phone]",
-          "[hiring manager title]",
-          "[recruiter name]",
-          "[recruiter email]",
-          "[recruiter phone]",
-          "[recruiter title]",
-          "[company founders]",
-          "[company founded date]",
-          "[company mission]",
-          "[company values]",
-          "[company culture]",
-          "[company benefits]",
-          "[company perks]",
-          "[company awards]",
-          "[company recognition]",
-          "[company news]",
-          "[company events]",
-          "[company social media]",
-          "[company career page]",
-          "[company about page]",
-          "[company contact page]",
-          "[company team page]",
-          "[company leadershipblog page]",
-          "[company jobs page]",
-          "[company press page]",
-          "[company investor page]",
-          "[company faq page]",
-          "[company help page]",
-          "[company privacy page]",
-          "[company terms page]",
-          "[company disclaimer page]",
-          "[company accessibility page]",
-          "[company sitemap page]",
-          "[company robots page]",
-          "[company humans page]",
-          "[company security page]",
-          "[company cookie page]",
-          "[company legal page]",
-          "[company copyright page]",
-          "[company trademark page]",
-        ],
-      });
+      const validAttachmentFilenames = (attachment_filename || []).filter((f): f is string => !!f);
 
-      const hasCoverLetter = isCoverLetterAIGenerated
-        ? false
-        : containsKeyword({
-          text: decodedBody,
-          keywords: [
-            // classic openers / closers
-            "cover letter",
-            "dear hiring manager",
-            "dear sir or madam",
-            "dear team",
-            "dear recruiter",
-            "dear [company]",
-            "i am writing to",
-            "i am excited to apply",
-            "i am reaching out",
-            "i am interested in",
-            "thank you for considering",
-            "thank you for your time",
-            "sincerely yours",
-            "best regards",
-
-            // self-introduction / intent
-            "with x years of experience",
-            "with hands-on experience in",
-            "i bring to the table",
-            "i offer",
-            "i am eager to",
-            "i am passionate about",
-            "i am confident that",
-            "i would love the opportunity",
-            "i am looking forward to",
-            "contribute to your team",
-            "add value to your organization",
-            "aligns with my career goals",
-
-            // skill highlights
-            "proficient in",
-            "expertise in",
-            "skilled at",
-            "experience working with",
-            "experience includes",
-            "hands-on knowledge of",
-            "demonstrated ability in",
-            "proven track record",
-            "strong background in",
-            "solid understanding of",
-
-            // achievements & impact
-            "improved",
-            "increased",
-            "reduced",
-            "achieved",
-            "delivered",
-            "optimized",
-            "enhanced",
-            "streamlined",
-            "boosted",
-            "spearheaded",
-            "led the development",
-            "successfully launched",
-            "production-ready apps",
-            "real-world projects",
-
-            // soft skills
-            "team-oriented",
-            "detail-oriented",
-            "self-motivated",
-            "fast learner",
-            "adaptable",
-            "collaborative",
-            "multitask",
-            "problem-solving",
-            "critical thinking",
-            "communication skills",
-
-            // company-centric phrases
-            "your company’s mission",
-            "your innovative projects",
-            "your dynamic environment",
-            "your development team",
-            "your engineering culture",
-            "your product roadmap",
-            "your commitment to excellence",
-          ],
-        }) &&
-        decodedBody.length >= 300 &&
-        decodedBody.trim().split(/\s+/).length >= 50;
-
-      const hasResume =
-        attachmentId?.length && attachment_filename?.length
-          ? containsKeyword({
-            text: attachment_filename?.[0] || "",
-            keywords: ["resume", "cv", "cover letter"],
-          }) ||
-          containsKeyword({
-            text: decodedBody || "",
-            keywords: [
-              "resume",
-              "Resume",
-              "resume attached",
-              "cv attached",
-              "please find my resume",
-              "attached is my resume",
-              "attached my resume",
-              "resume:",
-              "Resume:",
-            ],
-          }) ||
-          containsKeyword({
-            text: decodedBody || "",
-            keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
-          })
-          : containsKeyword({
-            text: decodedBody || "",
-            keywords: ["resume", "Resume", "cv", "CV", "cover letter", "Cover Letter"],
-          });
-
-      const potentialJobTitle = findPotentialJobTitle({
-        subject: subject ?? "",
+      const hasCoverLetter = detectCoverLetterStatus({
         body: decodedBody,
+        attachmentFilenames: validAttachmentFilenames
+      });
+
+      const hasResume = await detectResumeStatus({
+        body: decodedBody,
+        attachmentFilenames: validAttachmentFilenames,
+        attachmentIds: attachmentId as string[],
+        messageId: id || email.id || "",
       });
 
       try {
-        const extraction = await extractJobApplication(subject ?? "", decodedBody);
+        const { jobTitle, category, experienceStatus } = await extractJobDetails({
+          subject: subject ?? "",
+          body: decodedBody,
+          mastra,
+        });
 
-        if (extraction.category !== "unclear" && extraction.jobTitle !== "unclear") {
-          return {
-            ...emailMetaData,
-            hasCoverLetter,
-            hasResume,
-            position: extraction.jobTitle.trim().slice(0, 50),
-            category: extraction.category,
-            experienceStatus: extraction.experienceStatus,
-          };
-        }
-      } catch (err) {
-        console.error("Transformer extraction failed, falling back to LLM:", err);
-      }
+        const position = jobTitle || "unclear";
 
-      try {
-        const agent = mastra.getAgent("contextQAAgent");
-        const result = await agent.generate(
-          "Extract job application details from emails with varying structures",
-          {
-            instructions: `
-You are a job-application parser.  
-Input variables:  
-- SUBJECT: ${subject?.trim()}  
-- BODY: ${decodedBody.trim()}  
-- HINT_TITLE: ${potentialJobTitle ? `'${potentialJobTitle}'` : "None"}
-
-Return **only** valid JSON:  
-{ "job_title": "<title>", "experience_status": "<status>", "category": "<category>" }
-
-1. JOB_TITLE  
-   a. Patterns (stop at first hit):  
-      • ^Application for (.+?)(?:\\s*\\(|\\s*Role|$)  
-      • New application received for the position of (.+?)(?:\\s*\\[|\\s*at|$)  
-      • Job Opening: (.+?)(?:\\s*\\[|\\s*at|$)  
-      • applying for the (.+?) role|position  
-      • interest in any suitable (.+?) opportunities  
-   b. Clean: trim; drop everything from '(' or '[' onward.  
-   c. Fallback: if no match →  
-      • extract last word before "developer", "engineer", "programmer", "designer", etc.  
-      • else use HINT_TITLE if it appears verbatim in body.  
-
-2. EXPERIENCE_STATUS  
-   • "experienced" if regex matches:  
-     \\b(?:\\d+(?:\\.\\d+)?)\\s*(?:\\+|years?)\\b  OR  \\bbuilt \\d+ apps?\\b  OR  \\bthroughout my career\\b  
-   • "fresher" if “recent graduate”, “intern”, “entry-level” appear and no numeric years.  
-   • else "unclear".
-
-3. CATEGORY  
-   • "Developer" if title OR body contains: developer, engineer, programmer, flutter, react, backend, frontend, full-stack, node, laravel, php, mobile, app, software.  
-   • "Web Designer" for designer, ui/ux, web design.  
-   • "Recruiter" for recruiter, hr, talent acquisition.  
-   • "Sales/Marketing" for sales, marketing, business development.  
-   • else "unclear".
-
-Return **only** the JSON object—no explanation.
-`,
-            maxSteps: 10,
-          }
-        );
-        const generatedResult: {
-          job_title: string;
-          experience_status: string;
-          category: string;
-        } = extractJsonFromResult(result.text);
+        console.log(`Email ${id}: hasResume=${hasResume}, hasCoverLetter=${hasCoverLetter}, position=${position}, category=${category}`);
 
         return {
           ...emailMetaData,
           hasCoverLetter,
           hasResume,
-          position: generatedResult?.job_title || "unclear",
-          category: generatedResult?.category || "unclear",
-          experienceStatus: generatedResult?.experience_status || "unclear",
+          position,
+          category,
+          experienceStatus,
         };
       } catch (err) {
-        console.log(
-          "Error occured while extracting candidate details from email body",
-          err
-        );
+        console.log("Error occured while extracting candidate details from email body", err);
 
         // Wait 60 000 ms before the thread continues
         console.log("Waiting 1 minute before the thread continues");
@@ -973,32 +747,32 @@ const recruitmentPreStageWorkflow = createWorkflow({
   .foreach(deduplicateNewlyArrivedMails)
   .foreach(extractEmailMetaData)
   .then(sortEmailData)
-  .branch([
-    [
-      async ({ inputData: { missingResumeEmails } }) =>
-        missingResumeEmails.length > 0,
-      sendResumeMissingMail,
-    ],
-    [
-      async ({ inputData: { missingCoverLetterEmails } }) =>
-        missingCoverLetterEmails.length > 0,
-      sendCoverLetterMissingEmail,
-    ],
-    [
-      async ({ inputData: { unclearPositionEmails } }) =>
-        unclearPositionEmails.length > 0,
-      sendUnclearPositionEmail,
-    ],
-    [
-      async ({ inputData: { multipleMissingDetailsEmails } }) =>
-        multipleMissingDetailsEmails.length > 0,
-      sendMultipleRejectionReasonsMail,
-    ],
-    [
-      async ({ inputData: { confirmEmails } }) => confirmEmails.length > 0,
-      sendConfirmationEmail,
-    ],
-  ]);
+.branch([
+  [
+    async ({ inputData: { missingResumeEmails } }) =>
+      missingResumeEmails.length > 0,
+    sendResumeMissingMail,
+  ],
+  [
+    async ({ inputData: { missingCoverLetterEmails } }) =>
+      missingCoverLetterEmails.length > 0,
+    sendCoverLetterMissingEmail,
+  ],
+  [
+    async ({ inputData: { unclearPositionEmails } }) =>
+      unclearPositionEmails.length > 0,
+    sendUnclearPositionEmail,
+  ],
+  [
+    async ({ inputData: { multipleMissingDetailsEmails } }) =>
+      multipleMissingDetailsEmails.length > 0,
+    sendMultipleRejectionReasonsMail,
+  ],
+  [
+    async ({ inputData: { confirmEmails } }) => confirmEmails.length > 0,
+    sendConfirmationEmail,
+  ],
+]);
 
 recruitmentPreStageWorkflow.commit();
 
