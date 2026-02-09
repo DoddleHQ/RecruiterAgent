@@ -37,7 +37,7 @@ services:
     restart: unless-stopped
     user: "1000:1000"
     ports:
-      - "5000:15000"           # Backend (public)
+      - "15000:5000"           # Backend (public)
       - "127.0.0.1:14111:4111" # Mastra API/Playground (localhost only)
     environment:
       NODE_ENV: production
