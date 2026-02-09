@@ -4,6 +4,14 @@ services:
     container_name: redis
     restart: always
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
     volumes:
       - redis-data:/data
     networks:
@@ -14,6 +22,14 @@ services:
     image: ankane/pgvector:latest
     container_name: postgres
     restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
