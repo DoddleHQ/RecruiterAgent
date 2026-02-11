@@ -11,7 +11,6 @@ import {
 import { redis } from "../../queue/connection";
 import { findPotentialJobTitle } from "../../utils/emailUtils";
 import { detectResumeStatus, extractJobDetails } from "../../utils/extraction";
-import { extractJobApplication } from "../../utils/smartExtract";
 import * as cheerio from "cheerio";
 import { env } from "../../utils/config";
 
@@ -25,6 +24,12 @@ if (!recruitmentMail) {
 if (!consultingMail) {
   throw new Error("CONSULTING_MAIL environment variable is not set");
 }
+
+const recruiterTeamMembers = env.RECRUITER_TEAM_MEMBERS
+  ? env.RECRUITER_TEAM_MEMBERS
+    .split(",")
+    .map((member) => member.trim().toLowerCase())
+  : [];
 
 export const extractEmailAndName = (
   emailString: string | null | undefined
@@ -242,6 +247,17 @@ const extractEmailMetaData = createStep({
           ? extractEmailAndName(replyToAddress)
           : extractEmailAndName(userAddress);
 
+      // Ignore emails from recruiter team members
+      if (name && recruiterTeamMembers.length > 0) {
+        const isFromRecruiterTeamMember = recruiterTeamMembers.some(
+          (member) => name.toLowerCase().includes(member)
+        );
+        if (isFromRecruiterTeamMember) {
+          console.log("Email is from a recruiter team member, skipping", name);
+          return null;
+        }
+      }
+
       if (!userEmail?.includes("@indeedemail.com")) {
         console.log("Email is not from Indeed, skipping", userEmail);
         return null;
@@ -269,7 +285,6 @@ const extractEmailMetaData = createStep({
         "candidate for",
         "looking for job",
         "seeking opportunity",
-        "new message from",
         "developer",
         "devops",
         "engineer",
@@ -283,6 +298,7 @@ const extractEmailMetaData = createStep({
       ];
 
       const irrelevantSubjectKeywords = [
+        "New Message from",
         "unsubscribe",
         "newsletter",
         "promotion",
