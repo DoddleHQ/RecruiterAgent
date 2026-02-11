@@ -16,7 +16,6 @@ import {
 import { redis } from "../../queue/connection";
 import {
   extractEmailAndName,
-  extractJsonFromResult,
 } from "./recruitment-pre-stage-workflow";
 import { decodeEmailBody } from "../../utils/gmail";
 import {
@@ -28,7 +27,6 @@ import {
   detectResumeStatus,
   extractJobDetails,
 } from "../../utils/extraction";
-import { extractJobApplication } from "../../utils/smartExtract";
 import { context7Mcp } from "../mcpservers/context7";
 import { queryVectorTool } from "../tools/queryVectorTool";
 
@@ -66,6 +64,13 @@ if (!recruitmentMail) {
 if (!consultingMail) {
   throw new Error("CONSULTING_MAIL environment variable is not set");
 }
+
+// Parse RECRUITER_TEAM_MEMBERS from comma-separated string to array
+const recruiterTeamMembers = process.env.RECRUITER_TEAM_MEMBERS
+  ? process.env.RECRUITER_TEAM_MEMBERS
+    .split(",")
+    .map((member) => member.trim().toLowerCase())
+  : [];
 
 const AgentTrigger = createStep({
   id: "agent-trigger",
@@ -245,6 +250,17 @@ const extractEmailMetaData = createStep({
         userAddress?.includes(consultingMail) && replyToAddress
           ? extractEmailAndName(replyToAddress)
           : extractEmailAndName(userAddress);
+
+      // Ignore emails from recruiter team members
+      if (username && recruiterTeamMembers.length > 0) {
+        const isFromRecruiterTeamMember = recruiterTeamMembers.some(
+          (member) => username.toLowerCase().includes(member)
+        );
+        if (isFromRecruiterTeamMember) {
+          console.log("Email is from a recruiter team member, skipping", username);
+          return null;
+        }
+      }
 
       if (
         !userEmail ||

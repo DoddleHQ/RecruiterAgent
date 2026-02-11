@@ -10,9 +10,7 @@ import {
   sendThreadReplyEmail,
 } from "../../utils/gmail";
 import { redis } from "../../queue/connection";
-import { findPotentialJobTitle } from "../../utils/emailUtils";
 import { detectCoverLetterStatus, detectResumeStatus, extractJobDetails } from "../../utils/extraction";
-import { extractJobApplication } from "../../utils/smartExtract";
 import { env } from "../../utils/config";
 
 const recruitmentMail = env.RECRUITMENT_MAIL;
@@ -25,6 +23,12 @@ if (!recruitmentMail) {
 if (!consultingMail) {
   throw new Error("CONSULTING_MAIL environment variable is not set");
 }
+
+const recruiterTeamMembers = env.RECRUITER_TEAM_MEMBERS
+  ? env.RECRUITER_TEAM_MEMBERS
+    .split(",")
+    .map((member) => member.trim().toLowerCase())
+  : [];
 
 export const extractEmailAndName = (
   emailString: string | null | undefined
@@ -240,6 +244,16 @@ const extractEmailMetaData = createStep({
         userAddress?.includes(consultingMail) && replyToAddress
           ? extractEmailAndName(replyToAddress)
           : extractEmailAndName(userAddress);
+
+      if (name && recruiterTeamMembers.length > 0) {
+        const isFromRecruiterTeamMember = recruiterTeamMembers.some(
+          (member) => name.toLowerCase().includes(member)
+        );
+        if (isFromRecruiterTeamMember) {
+          console.log("Email is from a recruiter team member, skipping", name);
+          return null;
+        }
+      }
 
       if (!userEmail?.includes("@gmail.com")) {
         console.log("Email is not from Gmail, skipping", userEmail);
@@ -747,32 +761,32 @@ const recruitmentPreStageWorkflow = createWorkflow({
   .foreach(deduplicateNewlyArrivedMails)
   .foreach(extractEmailMetaData)
   .then(sortEmailData)
-.branch([
-  [
-    async ({ inputData: { missingResumeEmails } }) =>
-      missingResumeEmails.length > 0,
-    sendResumeMissingMail,
-  ],
-  [
-    async ({ inputData: { missingCoverLetterEmails } }) =>
-      missingCoverLetterEmails.length > 0,
-    sendCoverLetterMissingEmail,
-  ],
-  [
-    async ({ inputData: { unclearPositionEmails } }) =>
-      unclearPositionEmails.length > 0,
-    sendUnclearPositionEmail,
-  ],
-  [
-    async ({ inputData: { multipleMissingDetailsEmails } }) =>
-      multipleMissingDetailsEmails.length > 0,
-    sendMultipleRejectionReasonsMail,
-  ],
-  [
-    async ({ inputData: { confirmEmails } }) => confirmEmails.length > 0,
-    sendConfirmationEmail,
-  ],
-]);
+  .branch([
+    [
+      async ({ inputData: { missingResumeEmails } }) =>
+        missingResumeEmails.length > 0,
+      sendResumeMissingMail,
+    ],
+    [
+      async ({ inputData: { missingCoverLetterEmails } }) =>
+        missingCoverLetterEmails.length > 0,
+      sendCoverLetterMissingEmail,
+    ],
+    [
+      async ({ inputData: { unclearPositionEmails } }) =>
+        unclearPositionEmails.length > 0,
+      sendUnclearPositionEmail,
+    ],
+    [
+      async ({ inputData: { multipleMissingDetailsEmails } }) =>
+        multipleMissingDetailsEmails.length > 0,
+      sendMultipleRejectionReasonsMail,
+    ],
+    [
+      async ({ inputData: { confirmEmails } }) => confirmEmails.length > 0,
+      sendConfirmationEmail,
+    ],
+  ]);
 
 recruitmentPreStageWorkflow.commit();
 
