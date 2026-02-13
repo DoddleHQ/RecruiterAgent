@@ -1,5 +1,6 @@
 import { gmail_v1 } from "googleapis";
 import { getGmailClient } from "../OAuth/getGmailClient";
+import { encodeEmailSubject } from "./mimeEncoding";
 import { missingMultipleDetailsTemplate } from "../templates/rejection/missingMultipleDetails";
 import { noResumeTemplate } from "../templates/rejection/noResume";
 import { noCoverLetterTemplate } from "../templates/rejection/noCoverLetter";
@@ -291,7 +292,7 @@ export const sendEmail = async ({
       return response.data;
     }
 
-    let headers = `From: oCode Recruiter <${recruitmentMail}>\r\nTo: ${to}\r\nSubject: ${subject}`;
+    let headers = `From: oCode Recruiter <${recruitmentMail}>\r\nTo: ${to}\r\nSubject: ${encodeEmailSubject(subject)}`;
     if (inReplyTo) {
       headers += `\r\nIn-Reply-To: ${inReplyTo}`;
     }
@@ -609,7 +610,7 @@ export const sendThreadReplyEmail = async ({
     const emailContent = [
       `From: ${senderName} <${recruitmentEmail}>`,
       `To: ${userEmail}`,
-      `Subject: ${subject?.includes("Re:") ? subject : `Re: ${subject}`}`,
+      `Subject: ${encodeEmailSubject(subject?.includes("Re:") ? subject : `Re: ${subject}`)}`,
       `In-Reply-To: ${inReplyTo}`,
       `References: ${references?.join(" ")}`,
       `Bcc: ${bccEmail}`,
@@ -809,7 +810,7 @@ export const sendCustomizeThreadReplyEmail = async ({
     const emailContent = [
       `From: ${senderName} <${recruitmentEmail}>`,
       `To: ${userEmail}`,
-      `Subject: ${subject?.includes("Re:") ? subject : `Re: ${subject}`}`,
+      `Subject: ${encodeEmailSubject(subject?.includes("Re:") ? subject : `Re: ${subject}`)}`,
       `In-Reply-To: ${inReplyTo}`,
       `References: ${references?.join(" ")}`,
       `Bcc: ${bccEmail}`,
