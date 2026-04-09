@@ -172,7 +172,7 @@ const sendTestReplyEmails = createStep({
           emailId: emailInfo.emailId,
           inReplyTo: emailInfo.messageId,
           references: [emailInfo.messageId],
-          templateId: "templates-rejection-no_cover_letter",
+          templateId: "templates-rejection-no_resume",
           addLabelIds: ["Pre-Stage"],
         });
       } catch (error) {
