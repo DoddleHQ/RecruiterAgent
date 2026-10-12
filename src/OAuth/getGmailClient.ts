@@ -25,15 +25,4 @@ export const getGmailClient = async (impersonatedUser: string) => {
   const gmail = google.gmail({ version: "v1", auth: authClient });
 
   return gmail;
-  //   const res = await gmail.users.labels.list({ userId: "me" });
-
-  //   console.table(
-  //     res.data.labels?.map((l) => ({
-  //       id: l.id,
-  //       name: l.name,
-  //       type: l.type,
-  //       textColor: l.color?.textColor,
-  //       backgroundColor: l.color?.backgroundColor,
-  //     }))
-  //   );
 };
