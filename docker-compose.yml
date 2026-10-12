@@ -16,7 +16,6 @@ services:
       - redis-data:/data
     networks:
       - mastra-network
-    # No ports exposed - internal only
 
   postgres:
     image: ankane/pgvector:latest
@@ -38,7 +37,6 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - mastra-network
-    # No ports exposed - internal only
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -52,9 +50,6 @@ services:
     container_name: mastra-app
     restart: unless-stopped
     user: "1000:1000"
-    ports:
-      - "15000:5000"           # Backend (public)
-      - "127.0.0.1:14111:4111" # Mastra API/Playground (localhost only)
     environment:
       NODE_ENV: production
       NODE_PORT: 5000
