@@ -8,7 +8,6 @@ import {
   sendCustomizeThreadReplyEmail,
 } from "../../utils/gmail";
 
-// First node: Search for emails with specific subject and extract basic info
 const searchTestEmails = createStep({
   id: "search-test-emails",
   description:
@@ -39,7 +38,6 @@ const searchTestEmails = createStep({
     if (!inputData) return [];
 
     try {
-      // Search for emails with the specific subject
       const searchResult = await gmailSearchEmails({
         userId: "me",
         q: 'subject:"Test: testing template formatting and naming issues!" -subject:"Re: Test: testing template formatting and naming issues!"',
@@ -52,12 +50,10 @@ const searchTestEmails = createStep({
         if (!email.id || !email.threadId) continue;
 
         try {
-          // Get detailed email content
           const emailContent = await getEmailContent(email.id);
 
           if (!emailContent) continue;
 
-          // Extract headers
           const headers = emailContent.payload?.headers || [];
           const messageId =
             headers.find((h) => h.name?.toLowerCase() === "message-id")
@@ -74,23 +70,19 @@ const searchTestEmails = createStep({
             headers.find((h) => h.name?.toLowerCase() === "date")?.value ||
             null;
 
-          // Extract sender name and email from "from" field
           let senderName = null;
           let senderEmail = null;
 
           if (from) {
-            // Parse "Name <email@domain.com>" format
             const match =
               from.match(/^(.+?)\s*<(.+?)>$/) || from.match(/^(.+)$/);
             if (match) {
               if (match[2]) {
-                // Format: "Name <email>"
-                senderName = match[1].trim().replace(/^["']|["']$/g, ""); // Remove quotes
+                senderName = match[1].trim().replace(/^["']|["']$/g, "");
                 senderEmail = match[2].trim();
               } else {
-                // Format: just email
                 senderEmail = match[1].trim();
-                senderName = senderEmail.split("@")[0]; // Use email prefix as name
+                senderName = senderEmail.split("@")[0];
               }
             }
           }
@@ -123,7 +115,6 @@ const searchTestEmails = createStep({
   },
 });
 
-// Second node: Send thread reply emails using the extracted data
 const sendTestReplyEmails = createStep({
   id: "send-test-reply-emails",
   description:
@@ -184,7 +175,6 @@ const sendTestReplyEmails = createStep({
   },
 });
 
-// Create the debug workflow
 const debugWorkflow = createWorkflow({
   id: "debug-workflow",
   description: "Debug workflow to search test emails and send thread replies",
@@ -233,7 +223,6 @@ const debugWorkflow = createWorkflow({
   .then(searchTestEmails)
   .then(sendTestReplyEmails);
 
-// Commit the workflow
 debugWorkflow.commit();
 
 export { debugWorkflow };

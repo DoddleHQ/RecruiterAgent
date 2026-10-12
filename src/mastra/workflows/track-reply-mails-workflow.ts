@@ -45,7 +45,6 @@ interface ApplicantKeyDetails {
   resume?: string;
   agreement: string;
 
-  // tech experienced
   lastAppraisal?: string;
   switchingReason?: string;
   totalWorkExp?: string;
@@ -65,7 +64,6 @@ if (!consultingMail) {
   throw new Error("CONSULTING_MAIL environment variable is not set");
 }
 
-// Parse RECRUITER_TEAM_MEMBERS from comma-separated string to array
 const recruiterTeamMembers = process.env.RECRUITER_TEAM_MEMBERS
   ? process.env.RECRUITER_TEAM_MEMBERS
     .split(",")
@@ -91,7 +89,6 @@ const AgentTrigger = createStep({
       return [{ id: "", threadId: "" }];
     }
 
-    // Use label IDs directly in the query string
     const stage1InterviewsearchInput = {
       userId: "me",
       q: `label:unread label:"Stage1 Interview" -label:Rejected -label:"High Salary Expectation"`,
@@ -251,7 +248,6 @@ const extractEmailMetaData = createStep({
           ? extractEmailAndName(replyToAddress)
           : extractEmailAndName(userAddress);
 
-      // Ignore emails from recruiter team members
       if (username && recruiterTeamMembers.length > 0) {
         const isFromRecruiterTeamMember = recruiterTeamMembers.some(
           (member) => username.toLowerCase().includes(member)
@@ -597,11 +593,6 @@ const analyseIncompleteApplications = createStep({
 
       if (threadMessages.length === 0) continue;
 
-      // --------------------------------------------------------------------
-      // DATA EXTRACTION
-
-      // RESUME EXTRACTION FROM THE THREAD MESSAGES
-
       const candidateMessages = threadMessages.filter((message) => {
         const fromHeader = message.payload?.headers?.find(
           (h) => h.name && h.name.toLowerCase() === "from"
@@ -647,7 +638,6 @@ const analyseIncompleteApplications = createStep({
           ? (candidateThreadMailBodies ?? "") + decodedBody
           : (candidateThreadMailBodies ?? "");
 
-        // Collect attachment info from all messages
         parts.forEach(p => {
           if (p.filename && p.body?.attachmentId) {
             attachment_filename.push(p.filename);
@@ -666,8 +656,8 @@ const analyseIncompleteApplications = createStep({
         body: mail.body,
         attachmentFilenames: attachment_filename,
         attachmentIds: attachmentId,
-        messageId: mail.id, // Fallback
-        messageIds: attachmentMessageIds, // Accurate tracking
+        messageId: mail.id,
+        messageIds: attachmentMessageIds,
         resumeLink: resumeLink,
       });
 
@@ -916,7 +906,6 @@ const migrateApplicantsWithKeyDetails = createStep({
       try {
         const { position, workExp } = keyDetails;
 
-        // Validate input details
         const isMeaningful = (value: string) =>
           value &&
           value.trim() &&
@@ -932,7 +921,6 @@ const migrateApplicantsWithKeyDetails = createStep({
           : "Not provided";
 
         try {
-          // Prepare candidate details
           const resumeText =
             parsedResumeContent || "No resume content provided.";
           const jobPosition = meaningfulJobPosition;

@@ -154,12 +154,6 @@ const ExtractEmailMetaDataOutput = z
 const extractEmailMetaData = createStep({
   id: "extract-email-meta-data",
   description: "Extracts email metadata by email ID and thread ID",
-  // for development
-  // inputSchema: z.object({
-  //   id: z.string().nullable().optional(),
-  //   threadId: z.string().nullable().optional(),
-  // }),
-  // for production
   inputSchema: z
     .object({
       id: z.string(),
@@ -228,7 +222,6 @@ const extractEmailMetaData = createStep({
 
       const $ = cheerio.load(decodedHtmlBody);
 
-      // Find all anchor tags and filter based on text
       const resumeLink =
         $("a")
           .filter(
@@ -247,7 +240,6 @@ const extractEmailMetaData = createStep({
           ? extractEmailAndName(replyToAddress)
           : extractEmailAndName(userAddress);
 
-      // Ignore emails from recruiter team members
       if (name && recruiterTeamMembers.length > 0) {
         const isFromRecruiterTeamMember = recruiterTeamMembers.some(
           (member) => name.toLowerCase().includes(member)

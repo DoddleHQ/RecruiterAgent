@@ -46,10 +46,9 @@ export const extractJsonFromResult = (result: string) => {
     try {
       return JSON.parse(match[0]);
     } catch (e) {
-      // Try to clean up common issues
       const cleaned = match[0]
-        .replace(/,\s*}/g, '}')  // Remove trailing commas
-        .replace(/,\s*]/g, ']');  // Remove trailing commas
+        .replace(/,\s*}/g, '}')
+        .replace(/,\s*]/g, ']');
       try {
         return JSON.parse(cleaned);
       } catch (e2) {
@@ -169,12 +168,6 @@ const ExtractEmailMetaDataOutput = z
 const extractEmailMetaData = createStep({
   id: "extract-email-meta-data",
   description: "Extracts email metadata by email ID and thread ID",
-  // for development
-  // inputSchema: z.object({
-  //   id: z.string().nullable().optional(),
-  //   threadId: z.string().nullable().optional(),
-  // }),
-  // for production
   inputSchema: z
     .object({
       id: z.string(),
@@ -383,7 +376,6 @@ const extractEmailMetaData = createStep({
       } catch (err) {
         console.log("Error occured while extracting candidate details from email body", err);
 
-        // Wait 60 000 ms before the thread continues
         console.log("Waiting 1 minute before the thread continues");
         await new Promise<void>((resolve) => {
           setTimeout(() => {
