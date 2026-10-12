@@ -61,7 +61,7 @@ Return ONLY valid JSON:
 NO explanations, NO tool calls, ONLY JSON.
 `,
     model: "zhipuai-coding-plan/glm-4.6",
-    tools: {}, // NO TOOLS
+    tools: {},
     memory: new Memory({
         options: {
             threads: {

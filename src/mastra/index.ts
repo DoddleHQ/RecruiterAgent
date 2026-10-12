@@ -36,7 +36,6 @@ app.use(express.urlencoded({ extended: true }));
 
 export const mastra = new Mastra({
   workflows: {
-    // current recruit workflow
     recruitmentPreStageWorkflow,
     recruitmentIndeedPreStageWorkflow,
     trackReplyMailsWorkflow,
@@ -47,7 +46,6 @@ export const mastra = new Mastra({
     extractionAgent
   },
   storage: new LibSQLStore({
-    // stores telemetry, evals, ... into memory storage, if it needs to persist, change to file:../mastra.db
     url: "file:../mastra.db",
   }),
   logger: new PinoLogger({
