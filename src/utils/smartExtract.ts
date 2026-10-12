@@ -44,27 +44,22 @@ export interface SmartExtractionResult {
 
 function tryPatternExtraction(subject: string, body?: string): string | null {
     const subjectPatterns = [
-        // Indeed specific
         /New\s+Message\s+from\s+.+?\s*[–-]\s*(.+?)$/i,
         /\[Action\s+required\]\s+New\s+application\s+for\s+(.+?)(?:,|\s*\d+\s*at|$)/i,
 
-        // General specific
         /^Application\s+for\s+(.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
         /^New\s+application\s+received\s+for\s+the\s+position\s+of\s+(.+?)(?:\s+at\s+|\s*\[|$)/i,
         /^Job\s+Opening:\s*(.+?)(?:\s*\[|\s+at|$)/i,
         /^Applying\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job)|$)/i,
 
-        // Reply / Forward formats
         /^(?:Re|Fwd|FW|回复|转发):\s*Application\s+for\s+(.+?)(?:\s*\(|\s+Role|\s+Position|$)/i,
         /^(?:Re|Fwd|FW|回复|转发):\s*New\s+application\s+received\s+for\s+the\s+position\s+of\s+(.+?)(?:\s+at\s+|\s*\[|$)/i,
         /^(?:Re|Fwd|FW|回复|转发):\s*Job\s+Opening:\s*(.+?)(?:\s*\[|\s+at|$)/i,
         /^(?:Re|Fwd|FW|回复|转发):\s*Applying\s+for\s+(?:the\s+)?(.+?)(?:\s+(?:position|role|job)|$)/i,
         /^(?:Re|Fwd|FW|回复|转发):\s*(.+?)(?:\s+position|\s+role|\s+Application)$/i,
 
-        // Indeed format "Role - Immediate Joiner"
         /^(.+?)\s*[–-]\s*Immediate\s+Joiner/i,
 
-        // Submission format
         /Submission\s+of\s+.+?[–-]\s*(.+?)$/i,
     ];
 
@@ -150,7 +145,6 @@ async function extractJobTitle(subject: string, body: string): Promise<{ title: 
                 bestAnswer = answer;
             }
         } catch {
-            // continue
         }
     }
 
@@ -208,7 +202,6 @@ async function classifyApplication(text: string): Promise<{
     } else if (hasFresherMarker) {
         experienceStatus = "fresher";
     } else if (hasOneYearExperience) {
-        // 1 year can be borderline, but usually marked as experienced unless fresher keywords also present
         experienceStatus = "experienced";
     } else if (textLength > 100 && experienceScore > 0.5) {
         if (topExperience.includes("Experienced")) {
@@ -243,7 +236,6 @@ export async function extractJobApplication(subject: string, body: string): Prom
         const { title, confidence: titleConfidence } = await extractJobTitle(subject, body);
         let { category, experienceStatus, categoryConfidence, experienceConfidence } = await classifyApplication(fullText);
 
-        // Override category based on job title keywords for better accuracy
         const titleLower = title.toLowerCase();
         if (titleLower.includes("developer") || titleLower.includes("engineer") ||
             titleLower.includes("devops") || titleLower.includes("programmer") ||

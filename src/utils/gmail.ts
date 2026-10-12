@@ -188,7 +188,7 @@ export const getAttachment = async (messageId: string, attachmentId: string) => 
 export const containsKeyword = ({
   text,
   keywords,
-  minWordWindow = 0, // how many words must surround the matched phrase
+  minWordWindow = 0,
 }: {
   text: string;
   keywords: string[];
@@ -199,7 +199,6 @@ export const containsKeyword = ({
   const lower = text.toLowerCase();
 
   return keywords.some((kw) => {
-    // Regex pattern (starts/ends with /)
     if (kw.startsWith("/") && kw.endsWith("/")) {
       try {
         return new RegExp(kw.slice(1, -1), "i").test(text);
@@ -208,12 +207,10 @@ export const containsKeyword = ({
       }
     }
 
-    // Simple substring (with optional stemming)
     const base = kw.toLowerCase();
     if (lower.includes(base)) {
       if (minWordWindow === 0) return true;
 
-      // Ensure the phrase sits inside a long-enough sentence
       const idx = lower.indexOf(base);
       const start = Math.max(0, idx - 120);
       const end = Math.min(lower.length, idx + base.length + 120);

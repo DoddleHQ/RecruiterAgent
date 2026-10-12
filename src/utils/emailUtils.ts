@@ -38,7 +38,6 @@ export function findPotentialJobTitle({
       const match = subject.match(pattern);
       if (match) {
         jobTitle = match[1].trim();
-        // Clean up common greedy suffixes
         jobTitle = jobTitle.replace(/\s*\(.*?\)$/, "")
           .replace(/\s*[-–]\s*Immediate Joiner.*$/i, "")
           .replace(/\s*position$/i, "")
@@ -110,7 +109,6 @@ export function fastParseEmail(subject: string, body: string): FastParseResult {
       const match = subject.match(pattern);
       if (match) {
         jobTitle = match[1].trim();
-        // Clean up any parenthetical information
         jobTitle = jobTitle.replace(/\s*\(.*?\)$/, "").trim();
         break;
       }
@@ -297,13 +295,11 @@ export function extractDetailedCandidateInfo(
   body: string,
   attachmentContent?: string
 ): DetailedParseResult {
-  // Normalize text by replacing newlines with spaces and normalize bullet points
   const text = (subject + " " + body + " " + (attachmentContent || ""))
     .replace(/\r\n|\r|\n/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  // Helper function to extract field value with multiple patterns
   const extractField = (
     patterns: RegExp[],
     defaultValue = "unclear"
@@ -312,16 +308,13 @@ export function extractDetailedCandidateInfo(
       const match = text.match(pattern);
       if (match && match[1]) {
         const value = match[1].trim();
-        // Return defaultValue if empty string
         return value === "" ? defaultValue : value;
       }
     }
     return defaultValue;
   };
 
-  /* ---------- 1. Position extraction ---------- */
   let position: string = "unclear";
-  // Try to extract from subject first
   if (subject) {
     const subjectPatterns = [
       /^(?:Re:\s*)?New application received for the position of (.+?)(?:\s+at\s+|$)/i,
@@ -333,74 +326,47 @@ export function extractDetailedCandidateInfo(
       const match = subject.match(pattern);
       if (match) {
         position = match[1].trim();
-        // Clean up any parenthetical information
         position = position.replace(/\s*\(.*?\)$/, "").trim();
         break;
       }
     }
   }
 
-  // If subject didn't yield a position, try body
   if (position === "unclear") {
     position = extractField([
-      // Bullet point format
       /•\s*position\s+applied\s+for:\s*([^•\n]+)/i,
-      // Asterisk format
       /\*Position\s+Applied\s+For\*:\s*([^*\n]+)/i,
-      // Dash format
       /-\s*Position\s+applied\s+for:\s*([^-]+)/i,
-      // Simple format - stop at next field or end of line
       /position\s*[:.]\s*([^•\n*]*(?=(?:\s*[•*]|\s*\d+\.|\s*[A-Z][a-z]+\s*[:.]|-|$)))/i,
-      // Numbered list format
       /(?:^|\s)\d+\.\s*Position\s*[:.-]?\s*([^\d\n]+)/i,
     ]);
   }
 
-  /* ---------- 2. Current CTC extraction ---------- */
   const currentCTC = extractField([
-    // Numbered list format (like "1. Current CTC - 24k")
     /(?:^|\s)\d+\.\s*Current\s+CTC\s*[-.:]?\s*([^\d\n]+?)(?=\s*\d+\.|$)/i,
-    // Bullet point format
     /•\s*current\s+ctc[^:]*:\s*([^•\n]+?)(?=•|$)/i,
-    // Asterisk format
     /\*Current\s+CTC\*:\s*([^*\n]+?)(?=\*|$)/i,
-    // Dash format
     /-\s*Current\s+CTC:\s*([^-\n]+?)(?=-|$)/i,
-    // Simple format - stop at next field
-    /current\s+ctc\s*[:.]\s*([^•\n*]+?)(?=(?:\s*[•*]|\s*\d+\.|\s*[A-Z][a-z]+\s*[:.]|-|$))/i,
+    /current\s*ctc\s*[:.]\s*([^•\n*]+?)(?=(?:\s*[•*]|\s*\d+\.|\s*[A-Z][a-z]+\s*[:.]|-|$))/i,
   ]);
 
-  /* ---------- 3. Expected CTC extraction ---------- */
   const expectedCTC = extractField([
-    // Numbered list format (like "2. Expected CTC - 30k")
     /(?:^|\s)\d+\.\s*Expected\s+CTC\s*[-.:]?\s*([^\d\n]+?)(?=\s*\d+\.|$)/i,
-    // Bullet point format
     /•\s*expected\s+ctc:\s*([^•\n]+?)(?=•|$)/i,
-    // Asterisk format
     /\*Expected\s+CTC\*:\s*([^*\n]+?)(?=\*|$)/i,
-    // Dash format
     /-\s*Expected\s+CTC:\s*([^-\n]+?)(?=-|$)/i,
-    // Simple format - stop at next field
     /expected\s+ctc\s*[:.]\s*([^•\n*]+?)(?=(?:\s*[•*]|\s*\d+\.|\s*[A-Z][a-z]+\s*[:.]|-|$))/i,
   ]);
 
-  /* ---------- 4. Work Experience extraction ---------- */
   const workExp = extractField([
-    // Numbered list format (like "5. Total relevant work experience - 2 year 6 months")
     /(?:^|\s)\d+\.\s*Total\s+(?:relevant\s+)?work\s+experience\s*[-.:]?\s*([^\d\n]+?)(?=\s*\d+\.|$)/i,
-    // Bullet point format
     /•\s*total\s+(?:relevant\s+)?work\s+experience:\s*([^•\n]+?)(?=•|$)/i,
-    // Asterisk format
     /\*Total\s+Relevant\s+Work\s+Experience\*:\s*([^*\n]+?)(?=\*|$)/i,
-    // Dash format
     /-\s*Total\s+relevant\s+work\s+experience:\s*([^-\n]+?)(?=-|$)/i,
-    // Simple format - stop at next field
     /total\s+(?:relevant\s+)?work\s+experience\s*[:.]\s*([^•\n*]+?)(?=(?:\s*[•*]|\s*\d+\.|\s*[A-Z][a-z]+\s*[:.]|-|$))/i,
-    // Handle "Total Experience" format
     /total\s+experience\s*[:.]\s*([^•\n*]+?)(?=(?:\s*[•*]|\s*\d+\.|\s*[A-Z][a-z]+\s*[:.]|-|$))/i,
   ]);
 
-  // Create result object with only the required fields
   const result: DetailedCandidateInfo = {
     position,
     currentCTC,
@@ -495,7 +461,7 @@ export async function extractResumeText(resumeLink: string) {
     let text = "";
     while (true) {
       const result = await reader?.read();
-      if (!result) break; // or throw an error, depending on your use case
+      if (!result) break;
       const { value, done } = result;
       if (done) break;
       text += decoder.decode(value);
@@ -504,9 +470,6 @@ export async function extractResumeText(resumeLink: string) {
     console.log("text", text);
 
     return text;
-    // const pdfBuffer = await response.arrayBuffer();
-    // const { text } = await extractText(pdfBuffer);
-    // return text[0];
   } catch (err) {
     console.log(err);
     return "";

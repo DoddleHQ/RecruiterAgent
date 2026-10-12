@@ -56,12 +56,6 @@ function validateCategory(jobTitle: string, currentCategory: string) {
     return currentCategory;
 }
 
-/**
- * Tiered extraction for job application details:
- * 1. AI-First Extraction (Agent)
- * 2. One-shot Classifiers fallback (Transformers)
- * 3. Regex Fallback
- */
 export async function extractJobDetails({
     subject,
     body,
@@ -77,7 +71,6 @@ export async function extractJobDetails({
     console.log(`[Extraction] Cleaned subject: "${cleanedSubject}"`);
     console.log(`[Extraction] Potential job title from regex: "${potentialJobTitle}"`);
 
-    // 0. Fast Path: Subject-only extraction for emails with short bodies
     const subjectOnlyTitle = findPotentialJobTitle({
         subject: cleanedSubject,
         body: ""
@@ -98,7 +91,6 @@ export async function extractJobDetails({
         };
     }
 
-    // 1. AI-First: Try Agent if available
     if (mastra) {
         try {
             const agent = mastra.getAgent("extractionAgent");
@@ -170,7 +162,6 @@ Return **only** the JSON object—no explanation.
                         const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0;
                         console.log(`[Extraction] Agent output title: "${jobTitle}", Confidence: ${confidence}, Exists: ${titleExists}`);
 
-                        // Relax confidence requirement if title exists verbatim in source
                         const minimumConfidence = titleExists ? 0.1 : 0.7;
 
                         if (titleExists && confidence >= minimumConfidence) {
@@ -193,7 +184,6 @@ Return **only** the JSON object—no explanation.
                             } else {
                                 console.warn(`[Extraction] Low confidence (${confidence}) for: "${jobTitle}". Source preview: "${sourcePreview}..."`);
                             }
-                            // Don't return here, let it fall back to other methods
                         }
                     } else {
                         console.log(`[Extraction] Agent returned "unclear" or missing title. Reasoning: ${parsed.reasoning || 'N/A'}`);
@@ -207,7 +197,6 @@ Return **only** the JSON object—no explanation.
         }
     }
 
-    // 2. Fallback to One-shot Classifiers (Transformers)
     try {
         const extraction = await extractJobApplication(cleanedSubject, body);
 
@@ -220,7 +209,6 @@ Return **only** the JSON object—no explanation.
                 (jobTitle.includes("/") && jobTitle.split("/").every((part: string) => normalizedFullText.includes(normalize(part)))) ||
                 (jobTitle.includes("&") && jobTitle.split("&").every((part: string) => normalizedFullText.includes(normalize(part))));
 
-            // For SmartExtract, we still want a verbatim check to avoid hallucinations
             if (titleExists) {
                 return {
                     jobTitle: jobTitle.slice(0, 50),
@@ -239,7 +227,6 @@ Return **only** the JSON object—no explanation.
         console.error("SmartExtract failed:", err);
     }
 
-    // 3. Ultimate Fallback
     if (potentialJobTitle && potentialJobTitle !== "") {
         console.log(`[Extraction] Ultimate fallback: using regex title "${potentialJobTitle}"`);
         return {
@@ -284,10 +271,8 @@ export async function detectResumeStatus({
     messageIds?: string[];
     resumeLink?: string | null;
 }) {
-    // Layer 0: explicit Link (Indeed style)
     if (resumeLink) return true;
 
-    // Layer 1: Fast Keyword Check (High Confidence)
     const hasResumeKeywordsInFilenames = attachmentFilenames.some(filename =>
         containsKeyword({
             text: filename || "",
@@ -297,7 +282,6 @@ export async function detectResumeStatus({
 
     if (hasResumeKeywordsInFilenames) return true;
 
-    // Layer 2: Check Body references (High Confidence)
     const hasResumeMentionInBody = containsKeyword({
         text: body || "",
         keywords: [
@@ -317,7 +301,6 @@ export async function detectResumeStatus({
 
     if (hasResumeMentionInBody) return true;
 
-    // Layer 3: Content-based check for files with PDF/DOCX extensions (High Confidence)
     if (attachmentIds && attachmentFilenames.length > 0 && (messageId || messageIds)) {
         const files = attachmentFilenames.map((f, i) => ({
             filename: f,
@@ -337,7 +320,6 @@ export async function detectResumeStatus({
                         attachment: attachmentData.data
                     });
 
-                    // Comprehensive resume indicators
                     const resumeIndicators = [
                         "experience", "work history", "education", "skills",
                         "projects", "summary", "objective", "contact",
@@ -352,7 +334,6 @@ export async function detectResumeStatus({
                         textLower.includes(indicator)
                     ).length;
 
-                    // If we find 4 or more indicators, or high-density keywords, it's a resume
                     if (matches >= 4 || (textLower.includes("curriculum vitae") || textLower.includes("resume"))) return true;
                 }
             } catch (err) {
@@ -361,7 +342,6 @@ export async function detectResumeStatus({
         }
     }
 
-    // Layer 4: Minimal keyword check in body (Low Confidence)
     return containsKeyword({
         text: body || "",
         keywords: ["resume", "cv", "curriculum vitae"],
